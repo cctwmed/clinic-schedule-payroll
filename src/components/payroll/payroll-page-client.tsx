@@ -204,7 +204,9 @@ export function PayrollPageClient({
               季度獎金輸入區 · {quarterLabel}
             </h3>
             <p className="mt-1 text-sm text-violet-700">
-              固定發放週期：每年 3、6、9、12 月底。績效紅利為「非經常性薪資」，不計勞健保基數，併入年度 50 格式所得稅申報。
+              固定發放週期：每年 3、6、9、12 月底。金額區間{" "}
+              {CLINIC_PAYROLL.QUARTERLY_BONUS_MIN.toLocaleString("zh-TW")}–
+              {CLINIC_PAYROLL.QUARTERLY_BONUS_MAX.toLocaleString("zh-TW")} 元（非經常性薪資，不計勞健保基數）。
             </p>
             {lineItems.length > 0 && (
               <div className="mt-4 overflow-x-auto rounded-lg border border-violet-200 bg-white">
@@ -222,10 +224,11 @@ export function PayrollPageClient({
                         <td className="px-4 py-2">
                           <input
                             type="number"
-                            min={0}
+                            min={CLINIC_PAYROLL.QUARTERLY_BONUS_MIN}
+                            max={CLINIC_PAYROLL.QUARTERLY_BONUS_MAX}
                             step={500}
                             value={item.quarterlyBonus || ""}
-                            placeholder="院長填入"
+                            placeholder={`${CLINIC_PAYROLL.QUARTERLY_BONUS_MIN}–${CLINIC_PAYROLL.QUARTERLY_BONUS_MAX}`}
                             onChange={(e) =>
                               updateQuarterlyBonus(item.employeeId, Number(e.target.value))
                             }
@@ -474,7 +477,8 @@ function SalaryStructureBanner() {
           {formatMoney(CLINIC_PAYROLL.SPECIAL_ATTENDANCE_DAILY)}/天
         </li>
         <li>
-          彈性獎金、季獎金、年終獎金為獨立欄位（非經常性薪資），不計勞健保基數，併入 50 格式申報
+          季獎金固定於 3、6、9、12 月發放，金額 {CLINIC_PAYROLL.QUARTERLY_BONUS_MIN.toLocaleString("zh-TW")}–
+          {CLINIC_PAYROLL.QUARTERLY_BONUS_MAX.toLocaleString("zh-TW")} 元；彈性獎金、年終獎金為獨立欄位（非經常性薪資）
         </li>
       </ul>
     </div>

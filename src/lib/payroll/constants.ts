@@ -15,6 +15,9 @@ export const CLINIC_PAYROLL = {
   YEAR_END_MONTHS_BASE: 12,
   /** 季度獎金發放月份（3、6、9、12 月底） */
   QUARTERLY_BONUS_MONTHS: [3, 6, 9, 12] as const,
+  /** 季度績效獎金金額區間（元） */
+  QUARTERLY_BONUS_MIN: 2_000,
+  QUARTERLY_BONUS_MAX: 6_000,
   OT_RATE_WEEKDAY_1: 1.34,
   OT_RATE_WEEKDAY_2: 1.67,
 } as const;

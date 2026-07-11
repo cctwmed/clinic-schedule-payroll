@@ -75,8 +75,11 @@ export function clampFlexibleBonus(amount: number): number {
 }
 
 export function clampQuarterlyBonus(amount: number): number {
-  if (Number.isNaN(amount) || amount < 0) return 0;
-  return Math.round(amount);
+  if (Number.isNaN(amount) || amount <= 0) return 0;
+  return Math.min(
+    CLINIC_PAYROLL.QUARTERLY_BONUS_MAX,
+    Math.max(CLINIC_PAYROLL.QUARTERLY_BONUS_MIN, Math.round(amount))
+  );
 }
 
 export function recalcPayrollTotals(item: PayrollLineItem): PayrollLineItem {
