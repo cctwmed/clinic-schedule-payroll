@@ -122,7 +122,7 @@ export function SchedulePageClient({
 
   function handleGenerateGolden() {
     if (!employeeAId || !employeeBId) {
-      setMessage("請先選擇員工 A（護理組長）與員工 B（正職護理師）");
+      setMessage("請先選擇員工 A 與員工 B（皆為護理師）");
       return;
     }
     if (employeeAId === employeeBId) {
@@ -247,7 +247,7 @@ export function SchedulePageClient({
         <div className="flex flex-wrap items-end gap-3 rounded-xl border border-slate-200 bg-white p-4">
           <div>
             <label className="mb-1 block text-xs font-medium text-slate-600">
-              員工 A（護理組長）
+              員工 A（護理師）
             </label>
             <select
               value={employeeAId}
@@ -265,7 +265,7 @@ export function SchedulePageClient({
           </div>
           <div>
             <label className="mb-1 block text-xs font-medium text-slate-600">
-              員工 B（正職護理師）
+              員工 B（護理師）
             </label>
             <select
               value={employeeBId}
@@ -329,7 +329,7 @@ export function SchedulePageClient({
 
         {employees.length < 2 ? (
           <div className="rounded-xl border border-dashed border-slate-300 bg-white px-6 py-12 text-center text-sm text-slate-500">
-            請先到「員工管理」新增 2 位全職正職（護理組長 + 正職護理師），才能產生黃金班表
+            請先到「員工管理」新增 2 位護理師，才能產生黃金班表
           </div>
         ) : (
           <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">

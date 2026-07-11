@@ -13,6 +13,7 @@ import {
 } from "@/types/employee";
 
 function resolveJobTitle(raw: string | null | undefined): JobTitle {
+  if (raw === "nurse_lead") return "nurse_fulltime";
   if (raw && raw in JOB_TITLE_LABELS) {
     return raw as JobTitle;
   }

@@ -3,7 +3,6 @@ export type EmployeeStatus = "active" | "inactive" | "resigned";
 export type EmploymentType = "full_time" | "part_time" | "contract";
 
 export type JobTitle =
-  | "nurse_lead"
   | "nurse_fulltime"
   | "doctor"
   | "pharmacist"
@@ -48,8 +47,7 @@ export interface EmployeeFormData {
 }
 
 export const JOB_TITLE_LABELS: Record<JobTitle, string> = {
-  nurse_lead: "護理組長",
-  nurse_fulltime: "正職護理師",
+  nurse_fulltime: "護理師",
   doctor: "醫師",
   pharmacist: "藥師",
   admin_staff: "行政",
@@ -57,9 +55,16 @@ export const JOB_TITLE_LABELS: Record<JobTitle, string> = {
   other: "其他",
 };
 
+const LEGACY_JOB_TITLE_LABELS: Record<string, string> = {
+  nurse_lead: "護理師",
+};
+
 export function displayJobTitle(jobTitle: JobTitle | string | null | undefined, role: EmployeeRole): string {
   if (jobTitle && jobTitle in JOB_TITLE_LABELS) {
     return JOB_TITLE_LABELS[jobTitle as JobTitle];
+  }
+  if (jobTitle && jobTitle in LEGACY_JOB_TITLE_LABELS) {
+    return LEGACY_JOB_TITLE_LABELS[jobTitle];
   }
   if (jobTitle && typeof jobTitle === "string" && jobTitle.trim()) {
     return jobTitle.trim();
