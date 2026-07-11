@@ -25,6 +25,9 @@ export interface ClockMatchResult {
 
 const OFF_SHIFT_CODES = new Set(["STATUTORY", "REST", "CLOSED"]);
 
+/** 無當日排班時，上班打卡遲到的預設基準（早診到班） */
+export const DEFAULT_CLOCK_IN_TIME = "08:20";
+
 /** 台北時區的 YYYY-MM-DD 與 HH:MM → ISO 字串 */
 export function toTaipeiDateTime(workDate: string, time: string): Date {
   const normalized = time.length >= 5 ? time.slice(0, 5) : time;
@@ -105,6 +108,26 @@ export function resolveClockInAssignment(
   };
 }
 
+/** 當日無排班時，以診所預設早診到班時間（08:20）判斷遲到 */
+export function resolveDefaultClockInLate(
+  workDate: string,
+  clockedAt: Date
+): ClockMatchResult {
+  const expectedAt = toTaipeiDateTime(workDate, DEFAULT_CLOCK_IN_TIME);
+  const isLate = clockedAt > expectedAt;
+  const lateMinutes = isLate
+    ? Math.max(0, Math.floor((clockedAt.getTime() - expectedAt.getTime()) / 60000))
+    : 0;
+
+  return {
+    assignmentId: null,
+    expectedAt: expectedAt.toISOString(),
+    isLate,
+    lateMinutes,
+    shiftLabel: `預設早診 ${DEFAULT_CLOCK_IN_TIME}`,
+  };
+}
+
 export function resolveClockOutAssignment(
   assignments: WorkAssignment[],
   clocks: ExistingClock[]
@@ -140,11 +163,12 @@ export function evaluateLateForManualCorrection(
   clockedAt: Date,
   assignment: WorkAssignment | null
 ): { isLate: boolean; lateMinutes: number; expectedAt: string | null } {
-  if (clockType !== "clock_in" || !assignment) {
+  if (clockType !== "clock_in") {
     return { isLate: false, lateMinutes: 0, expectedAt: null };
   }
 
-  const expectedAt = toTaipeiDateTime(workDate, assignment.expected_clock_in);
+  const expectedIn = assignment?.expected_clock_in ?? DEFAULT_CLOCK_IN_TIME;
+  const expectedAt = toTaipeiDateTime(workDate, expectedIn);
   const isLate = clockedAt > expectedAt;
   const lateMinutes = isLate
     ? Math.max(0, Math.floor((clockedAt.getTime() - expectedAt.getTime()) / 60000))

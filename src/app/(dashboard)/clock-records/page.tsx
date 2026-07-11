@@ -1,6 +1,8 @@
 import { ClockRecordsPageClient } from "@/components/clock-records/clock-records-page-client";
 import { fetchClockRecordsPageData } from "./actions";
 
+export const dynamic = "force-dynamic";
+
 interface PageProps {
   searchParams: Promise<{ date?: string }>;
 }

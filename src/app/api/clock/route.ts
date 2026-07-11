@@ -6,6 +6,7 @@ import {
   filterWorkAssignments,
   resolveClockInAssignment,
   resolveClockOutAssignment,
+  resolveDefaultClockInLate,
   suggestNextClockAction,
   type ClockType,
   type ExistingClock,
@@ -133,7 +134,11 @@ export async function POST(request: NextRequest) {
 
     let match;
     if (clockType === "clock_in") {
-      match = resolveClockInAssignment(today, assignments, clocks, clockedAt);
+      if (workAssignments.length === 0) {
+        match = resolveDefaultClockInLate(today, clockedAt);
+      } else {
+        match = resolveClockInAssignment(today, assignments, clocks, clockedAt);
+      }
     } else if (clockType === "clock_out") {
       match = resolveClockOutAssignment(assignments, clocks);
     } else {
