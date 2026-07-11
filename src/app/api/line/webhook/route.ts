@@ -50,7 +50,7 @@ export async function POST(request: NextRequest) {
             type: "text",
             text: [
               "可用指令：",
-              "・今日打卡 — GPS 定位打卡（需在診所 100m 內）",
+              "・今日打卡 — GPS 定位打卡（需在診所 200m 內）",
               "・我的班表 — 查詢今日排班",
               "",
               `LIFF 打卡頁：${liffUrl}`,

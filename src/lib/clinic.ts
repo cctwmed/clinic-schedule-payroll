@@ -30,13 +30,18 @@ export async function getDefaultClinic(): Promise<Clinic> {
       ...data,
       latitude: data.latitude != null ? Number(data.latitude) : null,
       longitude: data.longitude != null ? Number(data.longitude) : null,
-      geo_radius_m: data.geo_radius_m ?? 100,
+      geo_radius_m: data.geo_radius_m ?? 200,
     };
   }
 
   const { data: created, error: createError } = await supabase
     .from("clinics")
-    .insert({ name: "我的診所", geo_radius_m: 100 })
+    .insert({
+      name: "我的診所",
+      latitude: 24.67873,
+      longitude: 121.76421,
+      geo_radius_m: 200,
+    })
     .select("id, name, address, latitude, longitude, geo_radius_m")
     .single();
 
@@ -46,7 +51,7 @@ export async function getDefaultClinic(): Promise<Clinic> {
     ...created,
     latitude: created.latitude != null ? Number(created.latitude) : null,
     longitude: created.longitude != null ? Number(created.longitude) : null,
-    geo_radius_m: created.geo_radius_m ?? 100,
+    geo_radius_m: created.geo_radius_m ?? 200,
   };
 }
 

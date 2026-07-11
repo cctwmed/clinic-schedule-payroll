@@ -125,7 +125,7 @@ export function buildClockInFlexMessage(liffUrl: string, employeeName?: string):
           },
           {
             type: "text",
-            text: "需在診所 100 公尺內，系統會自動比對 GPS 與班表時間（早診 08:20、晚診 16:00）。",
+            text: "需在診所 200 公尺內，系統會自動比對 GPS 與班表時間（早診 08:20、晚診 16:00）。",
             wrap: true,
             size: "xs",
             color: "#64748B",

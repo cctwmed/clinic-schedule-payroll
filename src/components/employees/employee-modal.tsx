@@ -12,6 +12,13 @@ import {
   type JobTitle,
 } from "@/types/employee";
 
+function resolveJobTitle(raw: string | null | undefined): JobTitle {
+  if (raw && raw in JOB_TITLE_LABELS) {
+    return raw as JobTitle;
+  }
+  return "nurse_fulltime";
+}
+
 interface EmployeeModalProps {
   open: boolean;
   employee: Employee | null;
@@ -33,7 +40,7 @@ export function EmployeeModal({ open, employee, onClose, onSuccess }: EmployeeMo
         employee_no: employee.employee_no,
         name: employee.name,
         role: employee.role,
-        job_title: (employee.job_title as JobTitle) || "nurse_fulltime",
+        job_title: resolveJobTitle(employee.job_title),
         employment_type: employee.employment_type,
         status: employee.status,
         email: employee.email ?? "",

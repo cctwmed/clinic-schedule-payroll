@@ -2,7 +2,14 @@ export type EmployeeRole = "nurse" | "admin" | "doctor" | "staff";
 export type EmployeeStatus = "active" | "inactive" | "resigned";
 export type EmploymentType = "full_time" | "part_time" | "contract";
 
-export type JobTitle = "nurse_lead" | "nurse_fulltime" | "other";
+export type JobTitle =
+  | "nurse_lead"
+  | "nurse_fulltime"
+  | "doctor"
+  | "pharmacist"
+  | "admin_staff"
+  | "cleaner"
+  | "other";
 
 export interface Employee {
   id: string;
@@ -43,6 +50,10 @@ export interface EmployeeFormData {
 export const JOB_TITLE_LABELS: Record<JobTitle, string> = {
   nurse_lead: "護理組長",
   nurse_fulltime: "正職護理師",
+  doctor: "醫師",
+  pharmacist: "藥師",
+  admin_staff: "行政",
+  cleaner: "打掃",
   other: "其他",
 };
 

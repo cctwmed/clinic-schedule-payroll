@@ -12,7 +12,7 @@ import {
   type WorkAssignment,
 } from "@/lib/clock/session";
 
-const ALLOWED_RADIUS_M = 100;
+/** 打卡有效半徑以資料庫 clinics.geo_radius_m 為準（預設 200 公尺） */
 
 function parseShiftJoin(raw: unknown): { code: string; name: string } | null {
   if (!raw) return null;
@@ -94,7 +94,7 @@ export async function POST(request: NextRequest) {
       clinic.latitude,
       clinic.longitude
     );
-    const radius = Math.min(clinic.geo_radius_m, ALLOWED_RADIUS_M);
+    const radius = clinic.geo_radius_m ?? 200;
 
     if (!isWithinRadius(latitude, longitude, clinic.latitude, clinic.longitude, radius)) {
       return NextResponse.json(
@@ -264,7 +264,7 @@ export async function GET(request: NextRequest) {
       name: clinic.name,
       latitude: clinic.latitude,
       longitude: clinic.longitude,
-      radiusM: Math.min(clinic.geo_radius_m, ALLOWED_RADIUS_M),
+      radiusM: clinic.geo_radius_m ?? 200,
     },
     binding: binding
       ? {
