@@ -24,10 +24,19 @@ const {
   HOURS_TOLERANCE,
 } = FLEXIBLE_LABOR;
 
+function formatTaipeiDate(date: Date): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Taipei",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(date);
+}
+
 function addDays(dateStr: string, days: number): string {
-  const d = new Date(`${dateStr}T00:00:00+08:00`);
-  d.setDate(d.getDate() + days);
-  return d.toISOString().slice(0, 10);
+  const base = new Date(`${dateStr}T12:00:00+08:00`);
+  base.setTime(base.getTime() + days * 86_400_000);
+  return formatTaipeiDate(base);
 }
 
 function hoursBetween(endIso: string, startIso: string): number {

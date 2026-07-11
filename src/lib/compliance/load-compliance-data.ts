@@ -92,9 +92,14 @@ export function monthPeriod(year: number, month: number) {
 /** 合規檢查需含四週滑動窗口，向前延伸 27 天 */
 export function compliancePeriod(year: number, month: number) {
   const { start, end } = monthPeriod(year, month);
-  const extStart = new Date(`${start}T00:00:00+08:00`);
-  extStart.setDate(extStart.getDate() - 27);
-  const extStartStr = extStart.toISOString().slice(0, 10);
+  const extStart = new Date(`${start}T12:00:00+08:00`);
+  extStart.setTime(extStart.getTime() - 27 * 86_400_000);
+  const extStartStr = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Taipei",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(extStart);
   return { start: extStartStr, end, monthStart: start, monthEnd: end };
 }
 

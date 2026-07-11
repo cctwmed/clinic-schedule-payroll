@@ -2,6 +2,8 @@ import { SchedulePageClient } from "@/components/schedules/schedule-page-client"
 import { LegalWarningBanner } from "@/components/compliance/legal-warning-banner";
 import { fetchSchedulePageData } from "./actions";
 
+export const dynamic = "force-dynamic";
+
 interface PageProps {
   searchParams: Promise<{ year?: string; month?: string }>;
 }
