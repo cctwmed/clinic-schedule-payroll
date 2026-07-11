@@ -9,7 +9,7 @@ export function ComplianceAlertList({ issues, maxItems = 8 }: ComplianceAlertLis
   if (issues.length === 0) {
     return (
       <div className="rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800">
-        目前未偵測到四週變形工時合規問題
+        目前未偵測到四週變形工時合規問題（已依黃金班表與四週週期檢查）
       </div>
     );
   }

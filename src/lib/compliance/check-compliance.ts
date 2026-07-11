@@ -228,6 +228,8 @@ function checkFourWeekWindows(
 
   while (cursor <= periodEnd) {
     const windowEnd = addDays(cursor, CYCLE_DAYS - 1);
+    if (windowEnd > periodEnd) break;
+
     const windowOffs = dayOffs.filter(
       (d) => d.employeeId === employeeId && d.date >= cursor && d.date <= windowEnd
     );
@@ -237,6 +239,11 @@ function checkFourWeekWindows(
         .filter((s) => s.employeeId === employeeId && s.date >= cursor && s.date <= windowEnd)
         .map((s) => s.date)
     );
+
+    if (dates.size === 0 && windowOffs.length === 0) {
+      cursor = addDays(cursor, CYCLE_DAYS);
+      continue;
+    }
 
     let regularTotal = 0;
     for (const date of dates) {
@@ -287,7 +294,7 @@ function checkFourWeekWindows(
       });
     }
 
-    cursor = addDays(cursor, 1);
+    cursor = addDays(cursor, CYCLE_DAYS);
   }
 
   return issues;
@@ -394,6 +401,11 @@ export function checkCompliance(input: CheckComplianceInput): ComplianceIssue[] 
     employeeAId,
     oddWeekTrackForA = 1,
   } = input;
+
+  if (shifts.length === 0 && dayOffs.length === 0) {
+    return [];
+  }
+
   const allIssues: ComplianceIssue[] = [];
 
   for (const emp of employeeIds) {
