@@ -150,29 +150,43 @@ export async function POST(request: NextRequest) {
     if (match.shiftLabel) noteParts.push(`班別：${match.shiftLabel}`);
     if (match.isLate) noteParts.push(`遲到 ${match.lateMinutes} 分鐘`);
 
-    const { data: record, error } = await supabase
+    const baseRecord = {
+      employee_id: resolvedEmployeeId,
+      assignment_id: match.assignmentId,
+      clock_type: clockType,
+      clocked_at: clockedAt.toISOString(),
+      latitude,
+      longitude,
+      geo_accuracy_m: accuracy ?? null,
+      distance_from_clinic_m: Math.round(distance * 100) / 100,
+      validation: "valid" as const,
+      source: "line_liff" as const,
+      note: noteParts.length > 0 ? noteParts.join("；") : null,
+      device_info: { userAgent: request.headers.get("user-agent") },
+    };
+
+    let record;
+    let error;
+    ({ data: record, error } = await supabase
       .from("clock_records")
       .insert({
-        employee_id: resolvedEmployeeId,
-        assignment_id: match.assignmentId,
-        clock_type: clockType,
-        clocked_at: clockedAt.toISOString(),
-        latitude,
-        longitude,
-        geo_accuracy_m: accuracy ?? null,
-        distance_from_clinic_m: Math.round(distance * 100) / 100,
-        validation: "valid",
-        source: "line_liff",
+        ...baseRecord,
         is_late: match.isLate,
         late_minutes: match.lateMinutes,
         expected_at: match.expectedAt,
-        note: noteParts.length > 0 ? noteParts.join("；") : null,
-        device_info: { userAgent: request.headers.get("user-agent") },
       })
       .select(
         "id, clocked_at, validation, distance_from_clinic_m, is_late, late_minutes, clock_type"
       )
-      .single();
+      .single());
+
+    if (error?.message.includes("schema cache")) {
+      ({ data: record, error } = await supabase
+        .from("clock_records")
+        .insert(baseRecord)
+        .select("id, clocked_at, validation, distance_from_clinic_m, clock_type")
+        .single());
+    }
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });

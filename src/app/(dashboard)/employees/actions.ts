@@ -36,13 +36,12 @@ function validateForm(form: EmployeeFormData): string | null {
   return null;
 }
 
-function toPayload(form: EmployeeFormData, clinicId: string) {
-  return {
+function toPayload(form: EmployeeFormData, clinicId: string, includeJobTitle = true) {
+  const payload: Record<string, unknown> = {
     clinic_id: clinicId,
     employee_no: form.employee_no.trim(),
     name: form.name.trim(),
     role: form.role,
-    job_title: form.job_title,
     employment_type: form.employment_type,
     status: form.status,
     email: form.email.trim() || null,
@@ -52,6 +51,14 @@ function toPayload(form: EmployeeFormData, clinicId: string) {
     labor_insurance_self_pay: form.labor_insurance_self_pay,
     health_insurance_self_pay: form.health_insurance_self_pay,
   };
+  if (includeJobTitle) {
+    payload.job_title = form.job_title;
+  }
+  return payload;
+}
+
+function isMissingJobTitleColumn(message: string): boolean {
+  return message.includes("job_title") && message.includes("schema cache");
 }
 
 export async function createEmployee(form: EmployeeFormData) {
@@ -60,7 +67,11 @@ export async function createEmployee(form: EmployeeFormData) {
 
   try {
     const clinicId = await getDefaultClinicId();
-    const { error } = await supabase.from("employees").insert(toPayload(form, clinicId));
+    let { error } = await supabase.from("employees").insert(toPayload(form, clinicId));
+
+    if (error && isMissingJobTitleColumn(error.message)) {
+      ({ error } = await supabase.from("employees").insert(toPayload(form, clinicId, false)));
+    }
 
     if (error) {
       if (error.code === "23505") {
@@ -85,10 +96,17 @@ export async function updateEmployee(id: string, form: EmployeeFormData) {
 
   try {
     const clinicId = await getDefaultClinicId();
-    const { error } = await supabase
+    let { error } = await supabase
       .from("employees")
       .update(toPayload(form, clinicId))
       .eq("id", id);
+
+    if (error && isMissingJobTitleColumn(error.message)) {
+      ({ error } = await supabase
+        .from("employees")
+        .update(toPayload(form, clinicId, false))
+        .eq("id", id));
+    }
 
     if (error) {
       if (error.code === "23505") {

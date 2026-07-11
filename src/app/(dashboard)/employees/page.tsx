@@ -2,6 +2,8 @@ import { EmployeesPageClient } from "@/components/employees/employees-page-clien
 import { fetchEmployees } from "./actions";
 import type { Employee } from "@/types/employee";
 
+export const dynamic = "force-dynamic";
+
 export default async function EmployeesPage() {
   let employees: Employee[] = [];
   let error: string | null = null;
