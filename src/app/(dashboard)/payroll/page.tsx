@@ -2,6 +2,8 @@ import { LegalWarningBanner } from "@/components/compliance/legal-warning-banner
 import { PayrollPageClient } from "@/components/payroll/payroll-page-client";
 import { fetchPayrollPageData } from "./actions";
 
+export const dynamic = "force-dynamic";
+
 interface PageProps {
   searchParams: Promise<{ year?: string; month?: string }>;
 }
