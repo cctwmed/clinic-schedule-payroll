@@ -98,6 +98,16 @@ export function buildGoldenShiftSlots(): ShiftSlotDef[] {
       color_hex: "#10B981",
       sort_order: 12,
     },
+    {
+      code: "CLOSED",
+      name: "診所休診",
+      category: "closed",
+      default_clock_in: null,
+      default_clock_out: null,
+      planned_hours: 0,
+      color_hex: "#94A3B8",
+      sort_order: 13,
+    },
   ];
 }
 
@@ -132,6 +142,8 @@ export const FLEXIBLE_LABOR = {
   MAX_REGULAR_HOURS_PER_DAY: GOLDEN_SCHEDULE.DUAL_DAY_HOURS,
   MAX_HALF_DAY_HOURS: GOLDEN_SCHEDULE.HALF_DAY_HOURS,
   MAX_TOTAL_HOURS_PER_DAY: 12,
+  /** 四週變形工時移轉：單日延長上限 */
+  MAX_TRANSFER_HOURS_PER_DAY: 10,
   WEEKLY_HOURS_TRACK1: GOLDEN_SCHEDULE.WEEKLY_HOURS_TRACK1,
   WEEKLY_HOURS_TRACK2: GOLDEN_SCHEDULE.WEEKLY_HOURS_TRACK2,
   MIN_STATUTORY_DAYS_PER_CYCLE: 4,

@@ -8,6 +8,11 @@ import {
   replyLineMessage,
 } from "@/lib/line/client";
 import { supabase } from "@/lib/supabase";
+import {
+  buildShiftClockStatuses,
+  buildShiftStatusSummaryLine,
+} from "@/lib/clock/shift-status";
+import type { ExistingClock, WorkAssignment } from "@/lib/clock/session";
 
 interface LineEvent {
   type: string;
@@ -17,7 +22,23 @@ interface LineEvent {
   postback?: { data?: string };
 }
 
-const CLOCK_KEYWORDS = ["打卡", "今日打卡", "上班打卡", "下班打卡", "上班", "下班"];
+const CLOCK_OUT_KEYWORDS = ["下班打卡", "下班"];
+const CLOCK_IN_KEYWORDS = ["上班打卡", "上班"];
+const CLOCK_GENERIC_KEYWORDS = ["打卡", "今日打卡"];
+
+function resolveClockKeyword(text: string): "clock_in" | "clock_out" | undefined {
+  if (CLOCK_OUT_KEYWORDS.some((k) => text.includes(k))) return "clock_out";
+  if (CLOCK_IN_KEYWORDS.some((k) => text.includes(k))) return "clock_in";
+  return undefined;
+}
+
+function isClockKeyword(text: string): boolean {
+  return (
+    CLOCK_OUT_KEYWORDS.some((k) => text.includes(k)) ||
+    CLOCK_IN_KEYWORDS.some((k) => text.includes(k)) ||
+    CLOCK_GENERIC_KEYWORDS.some((k) => text.includes(k))
+  );
+}
 
 export async function POST(request: NextRequest) {
   const body = await request.text();
@@ -36,10 +57,11 @@ export async function POST(request: NextRequest) {
       const text = event.message.text?.trim() ?? "";
       const userId = event.source?.userId;
 
-      if (CLOCK_KEYWORDS.some((k) => text.includes(k))) {
+      if (isClockKeyword(text)) {
         const employeeName = userId ? await getBoundEmployeeName(userId) : undefined;
+        const preferredAction = resolveClockKeyword(text);
         await replyLineMessage(event.replyToken, [
-          buildClockInFlexMessage(liffUrl, employeeName),
+          buildClockInFlexMessage(liffUrl, employeeName, preferredAction),
         ]);
       } else if (text === "我的班表") {
         await handleScheduleQuery(event.replyToken, userId);
@@ -50,7 +72,9 @@ export async function POST(request: NextRequest) {
             type: "text",
             text: [
               "可用指令：",
-              "・今日打卡 — GPS 定位打卡（需在診所 200m 內）",
+              "・上班 / 上班打卡 — 開啟上班 GPS 打卡",
+              "・下班 / 下班打卡 — 開啟下班 GPS 打卡",
+              "・今日打卡 — 顯示上班／下班選項",
               "・我的班表 — 查詢今日排班",
               "",
               `LIFF 打卡頁：${liffUrl}`,
@@ -78,7 +102,8 @@ export async function POST(request: NextRequest) {
           text: [
             "歡迎加入診所排班支薪系統！",
             "",
-            "📍 輸入「今日打卡」即可開啟 GPS 定位打卡",
+            "🟢 輸入「上班」→ GPS 上班打卡",
+            "🔴 輸入「下班」→ GPS 下班打卡",
             "📅 輸入「我的班表」查詢今日排班",
             "",
             `或直接開啟：${liffUrl}`,
@@ -132,40 +157,62 @@ async function handleScheduleQuery(replyToken: string, lineUserId?: string) {
 
   const { data: assignments } = await supabase
     .from("shift_assignments")
-    .select("expected_clock_in, expected_clock_out, shift_types(name, code)")
+    .select("id, expected_clock_in, expected_clock_out, shift_types(name, code)")
     .eq("employee_id", binding.employee_id)
     .eq("work_date", today)
     .neq("status", "cancelled")
     .order("expected_clock_in");
 
   const name = getEmployeeName(binding.employees) ?? "同仁";
-  const workShifts = (assignments ?? []).filter((a) => {
-    const st = a.shift_types as unknown;
-    const code = Array.isArray(st)
-      ? (st[0] as { code?: string })?.code
-      : (st as { code?: string } | null)?.code;
-    return code && !["STATUTORY", "REST", "ANNUAL_LEAVE", "CLOSED"].includes(code);
-  });
+  const mapped: WorkAssignment[] = (assignments ?? [])
+    .map((a) => {
+      const st = a.shift_types as unknown;
+      const item = Array.isArray(st) ? st[0] : st;
+      const code = (item as { code?: string } | null)?.code ?? "";
+      const shiftName = (item as { name?: string } | null)?.name ?? "班別";
+      if (["STATUTORY", "REST", "ANNUAL_LEAVE", "CLOSED"].includes(code)) return null;
+      return {
+        id: String(a.id),
+        expected_clock_in: String(a.expected_clock_in),
+        expected_clock_out: String(a.expected_clock_out),
+        shift_code: code,
+        shift_name: shiftName,
+      };
+    })
+    .filter((a): a is WorkAssignment => a != null);
 
-  if (!workShifts.length) {
+  if (!mapped.length) {
     await replyLineMessage(replyToken, [
       { type: "text", text: `${name}，今日（${today}）沒有出勤班別。` },
     ]);
     return;
   }
 
-  const lines = workShifts.map((a) => {
-    const st = a.shift_types as unknown;
-    const shiftName = Array.isArray(st)
-      ? (st[0] as { name?: string })?.name
-      : (st as { name?: string } | null)?.name;
-    return `${shiftName ?? "班別"} ${String(a.expected_clock_in).slice(0, 5)}–${String(a.expected_clock_out).slice(0, 5)}`;
-  });
+  const { data: clocks } = await supabase
+    .from("clock_records")
+    .select("id, assignment_id, clock_type, clocked_at, is_late, late_minutes")
+    .eq("employee_id", binding.employee_id)
+    .eq("clock_date", today)
+    .order("clocked_at");
+
+  const shiftStatuses = buildShiftClockStatuses(
+    mapped,
+    (clocks ?? []) as ExistingClock[]
+  );
+
+  const lines = shiftStatuses.map((s) => buildShiftStatusSummaryLine(s, shiftStatuses.length));
+  const doneCount = shiftStatuses.filter((s) => s.phase === "done").length;
 
   await replyLineMessage(replyToken, [
     {
       type: "text",
-      text: [`${name}，今日（${today}）班表：`, ...lines, "", "打卡請輸入「今日打卡」"].join("\n"),
+      text: [
+        `${name}，今日（${today}）共 ${shiftStatuses.length} 診 · 已完成 ${doneCount}`,
+        "",
+        ...lines,
+        "",
+        "輸入「上班」或「下班」可快速打卡",
+      ].join("\n"),
     },
   ]);
 }

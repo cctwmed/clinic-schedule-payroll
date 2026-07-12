@@ -5,6 +5,7 @@ import {
   CLINIC_PAYROLL,
   sumNonRecurringBonus,
 } from "@/lib/payroll/constants";
+import { calculateMonthlyOvertimePay } from "@/lib/payroll/overtime-pay";
 import { calculateYearEndBonus } from "@/lib/payroll/year-end-bonus";
 
 export interface EmployeePayrollInput {
@@ -36,9 +37,15 @@ export interface PayrollLineItem {
   regularHours: number;
   overtimeHours: number;
   overtimeHours2Tier: number;
-  /** 時數折算本薪（與固定底薪分開顯示） */
+  /** 時數折算本薪（舊欄位，保留相容） */
   basePay: number;
-  /** 診所固定月薪底薪參考值 */
+  /** 底薪 */
+  baseSalary: number;
+  /** 職務加給 */
+  jobAllowance: number;
+  /** 全勤獎金 */
+  fullAttendanceBonus: number;
+  /** 診所固定月薪合計參考值 */
   monthlyBaseSalary: number;
   overtimePay: number;
   flexibleBonus: number;
@@ -117,7 +124,7 @@ export function recalcPayrollTotals(item: PayrollLineItem): PayrollLineItem {
       annualLeavePayoutDays: item.annualLeavePayoutDays,
       nonRecurringTotal,
       recurringGross: round(recurringGross),
-      insuranceBase: CLINIC_PAYROLL.MONTHLY_BASE_SALARY,
+      insuranceBase: CLINIC_PAYROLL.INSURANCE_REPORT_BASE,
       taxForm50NonRecurring: nonRecurringTotal,
     },
   };
@@ -140,15 +147,14 @@ export function calculateEmployeePayroll(
     clocks
   );
 
-  const otRate = CLINIC_PAYROLL.OT_HOURLY_RATE;
   const otTier1 = Math.min(overtimeHours, 2);
   const otTier2 = Math.max(0, overtimeHours - 2);
 
-  const basePay = round(regularHours * employee.hourlyWage);
-  const overtimePay = round(
-    otTier1 * otRate * CLINIC_PAYROLL.OT_RATE_WEEKDAY_1 +
-      otTier2 * otRate * CLINIC_PAYROLL.OT_RATE_WEEKDAY_2
-  );
+  const baseSalary = CLINIC_PAYROLL.MONTHLY_BASE_SALARY;
+  const jobAllowance = CLINIC_PAYROLL.JOB_ALLOWANCE;
+  const fullAttendanceBonus = CLINIC_PAYROLL.FULL_ATTENDANCE_BONUS;
+  const basePay = baseSalary + jobAllowance + fullAttendanceBonus;
+  const overtimePay = calculateMonthlyOvertimePay(otTier1 + otTier2);
 
   const flexibleBonus = clampFlexibleBonus(bonusInput.flexibleBonus ?? 0);
   const quarterlyBonus = context?.includeQuarterlyBonus
@@ -192,7 +198,10 @@ export function calculateEmployeePayroll(
     overtimeHours: round(otTier1 + otTier2),
     overtimeHours2Tier: round(otTier2),
     basePay,
-    monthlyBaseSalary: CLINIC_PAYROLL.MONTHLY_BASE_SALARY,
+    baseSalary,
+    jobAllowance,
+    fullAttendanceBonus,
+    monthlyBaseSalary: CLINIC_PAYROLL.TOTAL_FIXED_SALARY,
     overtimePay,
     flexibleBonus,
     quarterlyBonus,
@@ -213,7 +222,11 @@ export function calculateEmployeePayroll(
     breakdown: {
       hourlyWage: employee.hourlyWage,
       otHourlyRate: CLINIC_PAYROLL.OT_HOURLY_RATE,
-      monthlyBaseSalary: CLINIC_PAYROLL.MONTHLY_BASE_SALARY,
+      baseSalary,
+      jobAllowance,
+      fullAttendanceBonus,
+      monthlyBaseSalary: CLINIC_PAYROLL.TOTAL_FIXED_SALARY,
+      insuranceReportBase: CLINIC_PAYROLL.INSURANCE_REPORT_BASE,
       specialAttendanceDaily: CLINIC_PAYROLL.SPECIAL_ATTENDANCE_DAILY,
       regularHours: round(regularHours),
       overtimeHours: round(otTier1 + otTier2),
@@ -230,7 +243,7 @@ export function calculateEmployeePayroll(
       otRate1: CLINIC_PAYROLL.OT_RATE_WEEKDAY_1,
       otRate2: CLINIC_PAYROLL.OT_RATE_WEEKDAY_2,
       laborMode: "四週變形工時（黃金班表）",
-      insuranceBase: CLINIC_PAYROLL.MONTHLY_BASE_SALARY,
+      insuranceBase: CLINIC_PAYROLL.INSURANCE_REPORT_BASE,
     },
   };
 

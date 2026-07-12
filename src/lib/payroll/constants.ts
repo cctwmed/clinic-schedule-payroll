@@ -3,9 +3,17 @@
  * 獎金類為非經常性薪資，不計入勞健保申報基數，併入所得稅 50 格式。
  */
 export const CLINIC_PAYROLL = {
-  /** 月薪底薪（含勞健保、6% 勞退申報基數） */
-  MONTHLY_BASE_SALARY: 34_000,
-  /** 平日加班／特種出勤時薪基數 */
+  /** 月薪底薪（勞健保、6% 勞退申報基數之一） */
+  MONTHLY_BASE_SALARY: 30_000,
+  /** 職務加給 */
+  JOB_ALLOWANCE: 2_000,
+  /** 全勤獎金（預設，可依出勤調整） */
+  FULL_ATTENDANCE_BONUS: 2_000,
+  /** 固定月薪合計（底薪 + 職務 + 全勤） */
+  TOTAL_FIXED_SALARY: 34_000,
+  /** 勞健保申報基數合計 */
+  INSURANCE_REPORT_BASE: 34_000,
+  /** 平日加班／特種出勤時薪基數（34000÷30÷8 四捨五入） */
   OT_HOURLY_RATE: 142,
   /** 國定假日／颱風天特殊出勤津貼（元／天） */
   SPECIAL_ATTENDANCE_DAILY: 1_133,
@@ -22,6 +30,12 @@ export const CLINIC_PAYROLL = {
   ANNUAL_LEAVE_DAILY_RATE: 34_000 / 30,
   OT_RATE_WEEKDAY_1: 1.34,
   OT_RATE_WEEKDAY_2: 1.67,
+  /** 休息日加班：第 3–8 小時倍率同 OT_RATE_WEEKDAY_2 */
+  OT_REST_DAY_TIER2_MAX_HOURS: 6,
+  /** 四週變形工時移轉：單日延長上限 */
+  MAX_TRANSFER_HOURS_PER_DAY: 10,
+  /** 漏打卡提醒緩衝（小時） */
+  FORGETFUL_BUFFER_HOURS: 2.5,
 } as const;
 
 export type QuarterlyBonusMonth = (typeof CLINIC_PAYROLL.QUARTERLY_BONUS_MONTHS)[number];

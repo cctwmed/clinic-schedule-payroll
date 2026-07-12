@@ -23,8 +23,10 @@ import type { ComplianceIssue } from "@/lib/compliance/types";
 import { buildGoldenShiftSlots, getShiftTemplate } from "@/lib/shift-templates";
 import {
   parseGoldenConfig,
-  serializeGoldenConfig,
+  parseScheduleMeta,
+  mergeScheduleMeta,
   type GoldenScheduleConfig,
+  type ClosureRecord,
 } from "@/lib/schedules/golden-config";
 import { generateGoldenMonthSchedule } from "@/lib/schedules/golden-rotation";
 
@@ -71,7 +73,8 @@ export async function fetchSchedulePageData(year: number, month: number) {
       OFF_DAY_CATEGORIES.includes(s.category) ||
       s.code === "STATUTORY" ||
       s.code === "REST" ||
-      s.code === "ANNUAL_LEAVE"
+      s.code === "ANNUAL_LEAVE" ||
+      s.code === "CLOSED"
   );
 
   const compPeriod = compliancePeriod(year, month);
@@ -315,7 +318,8 @@ export async function applyClinicGoldenTemplate() {
       slot.planned_hours > 0 ||
       slot.code === "STATUTORY" ||
       slot.code === "REST" ||
-      slot.code === "ANNUAL_LEAVE";
+      slot.code === "ANNUAL_LEAVE" ||
+      slot.code === "CLOSED";
 
     const { data: existing } = await supabase
       .from("shift_types")
@@ -348,10 +352,98 @@ export async function applyClinicGoldenTemplate() {
     .from("shift_types")
     .update({ is_active: false })
     .eq("clinic_id", clinic.id)
-    .in("code", ["AFTERNOON", "CLOSED"]);
+    .eq("code", "AFTERNOON");
 
   revalidatePath("/schedules");
   return { success: true as const, template: template.label };
+}
+
+/** 標記診所休診日（公佈前→休息日；公佈後→臨時休診並計入工時） */
+export async function markClinicClosureDay(
+  scheduleId: string,
+  workDate: string,
+  mode: "planned" | "temporary",
+  creditHours?: number
+) {
+  const { data: schedule, error: schErr } = await supabase
+    .from("schedules")
+    .select("id, clinic_id, year, month, status, note")
+    .eq("id", scheduleId)
+    .single();
+
+  if (schErr) return { success: false as const, error: schErr.message };
+
+  const { data: closedType } = await supabase
+    .from("shift_types")
+    .select("id")
+    .eq("clinic_id", schedule.clinic_id)
+    .eq("code", "CLOSED")
+    .maybeSingle();
+
+  const { data: restType } = await supabase
+    .from("shift_types")
+    .select("id")
+    .eq("clinic_id", schedule.clinic_id)
+    .eq("code", "REST")
+    .maybeSingle();
+
+  if (!closedType?.id) return { success: false as const, error: "請先套用班別模板（含休診）" };
+
+  const { data: employees } = await supabase
+    .from("employees")
+    .select("id")
+    .eq("clinic_id", schedule.clinic_id)
+    .eq("status", "active");
+
+  const isPublished = schedule.status === "published";
+  const effectiveMode = isPublished ? "temporary" : mode;
+
+  for (const emp of employees ?? []) {
+    await supabase
+      .from("shift_assignments")
+      .delete()
+      .eq("schedule_id", scheduleId)
+      .eq("employee_id", emp.id)
+      .eq("work_date", workDate);
+
+    if (effectiveMode === "planned" && restType?.id) {
+      await supabase.from("shift_assignments").insert({
+        schedule_id: scheduleId,
+        employee_id: emp.id,
+        shift_type_id: restType.id,
+        work_date: workDate,
+        expected_clock_in: "00:00",
+        expected_clock_out: "00:00",
+        status: "scheduled",
+        note: "預告休診→休息日",
+      });
+    } else {
+      const hours = creditHours ?? 7.67;
+      await supabase.from("shift_assignments").insert({
+        schedule_id: scheduleId,
+        employee_id: emp.id,
+        shift_type_id: closedType.id,
+        work_date: workDate,
+        expected_clock_in: "00:00",
+        expected_clock_out: "00:00",
+        status: "scheduled",
+        note: `closure_credit:${hours}`,
+      });
+    }
+  }
+
+  const closures: ClosureRecord[] = [
+    ...(parseScheduleMeta(schedule.note).closures ?? []).filter((c) => c.date !== workDate),
+    { date: workDate, mode: effectiveMode, creditHours: creditHours ?? 7.67 },
+  ];
+
+  await supabase
+    .from("schedules")
+    .update({ note: mergeScheduleMeta(schedule.note, { closures }) })
+    .eq("id", scheduleId);
+
+  revalidatePath("/schedules");
+  return { success: true as const, mode: effectiveMode };
 }
 
 export async function generateGoldenSchedule(
@@ -364,7 +456,7 @@ export async function generateGoldenSchedule(
 
   const { data: schedule, error: scheduleError } = await supabase
     .from("schedules")
-    .select("id, clinic_id, year, month, status")
+    .select("id, clinic_id, year, month, status, note")
     .eq("id", scheduleId)
     .single();
 
@@ -431,7 +523,11 @@ export async function generateGoldenSchedule(
 
   await supabase
     .from("schedules")
-    .update({ note: serializeGoldenConfig(config) })
+    .update({
+      note: mergeScheduleMeta(schedule.note, {
+        golden: { ...config, oddWeekTrackForA: config.oddWeekTrackForA ?? 1 },
+      }),
+    })
     .eq("id", scheduleId);
 
   revalidatePath("/schedules");

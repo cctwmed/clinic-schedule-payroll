@@ -28,10 +28,11 @@ export function getLineConfig() {
   return { accessToken, channelSecret, liffId, appUrl };
 }
 
-export function getLiffClockUrl(): string {
+export function getLiffClockUrl(action?: "clock_in" | "clock_out"): string {
   const { liffId, appUrl } = getLineConfig();
-  if (liffId) return `https://liff.line.me/${liffId}`;
-  return `${appUrl}/liff/clock`;
+  const query = action ? `?action=${action}` : "";
+  if (liffId) return `https://liff.line.me/${liffId}${query}`;
+  return `${appUrl}/liff/clock${query}`;
 }
 
 export async function pushLineMessage(
@@ -86,13 +87,25 @@ export async function replyLineMessage(
   return { ok: true };
 }
 
-/** 帶 LIFF 打卡按鈕的 Flex 訊息 */
-export function buildClockInFlexMessage(liffUrl: string, employeeName?: string): LineFlexMessage {
+/** 帶 LIFF 打卡按鈕的 Flex 訊息（上班／下班分開） */
+export function buildClockInFlexMessage(
+  liffUrl: string,
+  employeeName?: string,
+  preferredAction?: "clock_in" | "clock_out"
+): LineFlexMessage {
   const greeting = employeeName ? `${employeeName}，請完成 GPS 打卡` : "請完成 GPS 打卡";
+  const clockInUrl = getLiffClockUrl("clock_in");
+  const clockOutUrl = getLiffClockUrl("clock_out");
+  const hint =
+    preferredAction === "clock_out"
+      ? "系統偵測您可能需要下班打卡，請點選下方按鈕。"
+      : preferredAction === "clock_in"
+        ? "系統偵測您可能需要上班打卡，請點選下方按鈕。"
+        : "請選擇上班或下班，需在診所 200 公尺內完成 GPS 定位。";
 
   return {
     type: "flex",
-    altText: "今日打卡 — 開啟 LIFF 定位打卡",
+    altText: "今日打卡 — 上班／下班 GPS 定位打卡",
     contents: {
       type: "bubble",
       size: "kilo",
@@ -125,7 +138,14 @@ export function buildClockInFlexMessage(liffUrl: string, employeeName?: string):
           },
           {
             type: "text",
-            text: "需在診所 200 公尺內，系統會自動比對 GPS 與班表時間（早診 08:20、晚診 16:00）。",
+            text: hint,
+            wrap: true,
+            size: "xs",
+            color: "#64748B",
+          },
+          {
+            type: "text",
+            text: "早診 08:20、晚診 16:00 到班；雙診日需分別打上班／下班。",
             wrap: true,
             size: "xs",
             color: "#64748B",
@@ -136,6 +156,7 @@ export function buildClockInFlexMessage(liffUrl: string, employeeName?: string):
       footer: {
         type: "box",
         layout: "vertical",
+        spacing: "sm",
         contents: [
           {
             type: "button",
@@ -143,7 +164,25 @@ export function buildClockInFlexMessage(liffUrl: string, employeeName?: string):
             color: "#2563EB",
             action: {
               type: "uri",
-              label: "開啟打卡頁面",
+              label: "🟢 上班打卡",
+              uri: clockInUrl,
+            },
+          },
+          {
+            type: "button",
+            style: "secondary",
+            action: {
+              type: "uri",
+              label: "🔴 下班打卡",
+              uri: clockOutUrl,
+            },
+          },
+          {
+            type: "button",
+            style: "link",
+            action: {
+              type: "uri",
+              label: "開啟完整打卡頁",
               uri: liffUrl,
             },
           },
@@ -161,11 +200,21 @@ export function buildClockQuickReply(liffUrl: string): LineTemplateMessage {
     altText: "今日打卡",
     template: {
       type: "buttons",
-      text: "請選擇操作：",
+      text: "請選擇打卡操作：",
       actions: [
         {
           type: "uri",
-          label: "今日打卡",
+          label: "🟢 上班打卡",
+          uri: getLiffClockUrl("clock_in"),
+        },
+        {
+          type: "uri",
+          label: "🔴 下班打卡",
+          uri: getLiffClockUrl("clock_out"),
+        },
+        {
+          type: "uri",
+          label: "完整打卡頁",
           uri: liffUrl,
         },
         {

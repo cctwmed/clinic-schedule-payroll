@@ -3,6 +3,14 @@ import { supabase } from "@/lib/supabase";
 import { getDefaultClinic, taipeiToday } from "@/lib/clinic";
 import { getDistanceMeters, isWithinRadius } from "@/lib/geo/haversine";
 import {
+  buildShiftClockStatuses,
+} from "@/lib/clock/shift-status";
+import { evaluateClockReminders } from "@/lib/clock/reminders";
+import {
+  resolveWorkDutyStatus,
+  workDutyStatusLabel,
+} from "@/lib/clock/work-status";
+import {
   filterWorkAssignments,
   resolveClockInAssignment,
   resolveClockOutAssignment,
@@ -249,10 +257,14 @@ export async function GET(request: NextRequest) {
     .order("employee_no");
 
   let assignments: WorkAssignment[] = [];
+  let recentAssignments: WorkAssignment[] = [];
   let todayClocks: ExistingClock[] = [];
+  let recentClocks: ExistingClock[] = [];
   let nextAction: "clock_in" | "clock_out" | "done" = "clock_in";
 
   if (binding?.employee_id) {
+    const lookbackStart = addDaysTaipei(today, -14);
+
     const { data: assignData } = await supabase
       .from("shift_assignments")
       .select("id, expected_clock_in, expected_clock_out, shift_types(code, name)")
@@ -263,20 +275,45 @@ export async function GET(request: NextRequest) {
 
     assignments = mapAssignments(assignData ?? []);
 
+    const { data: recentAssignData } = await supabase
+      .from("shift_assignments")
+      .select("id, expected_clock_in, expected_clock_out, shift_types(code, name)")
+      .eq("employee_id", binding.employee_id)
+      .gte("work_date", lookbackStart)
+      .lte("work_date", today)
+      .neq("status", "cancelled")
+      .order("work_date")
+      .order("expected_clock_in");
+
+    recentAssignments = mapAssignments(recentAssignData ?? []);
+
     const { data: clocks } = await supabase
       .from("clock_records")
       .select(
         "id, clock_type, clocked_at, validation, is_late, late_minutes, is_manually_corrected, assignment_id, note"
       )
       .eq("employee_id", binding.employee_id)
-      .eq("clock_date", today)
+      .gte("clock_date", lookbackStart)
+      .lte("clock_date", today)
       .order("clocked_at");
 
-    todayClocks = (clocks ?? []) as ExistingClock[];
+    recentClocks = (clocks ?? []) as ExistingClock[];
+    todayClocks = recentClocks.filter((c) => c.clocked_at.startsWith(today));
     nextAction = suggestNextClockAction(assignments, todayClocks);
   }
 
   const workToday = filterWorkAssignments(assignments);
+  const shiftStatuses = buildShiftClockStatuses(assignments, todayClocks);
+  const workDutyStatus = resolveWorkDutyStatus(assignments, todayClocks);
+  const reminders = binding?.employee_id
+    ? evaluateClockReminders(
+        today,
+        assignments,
+        recentAssignments,
+        recentClocks,
+        shiftStatuses
+      )
+    : [];
 
   return NextResponse.json({
     clinic: {
@@ -293,10 +330,25 @@ export async function GET(request: NextRequest) {
       : null,
     employees: employees ?? [],
     assignments: workToday,
+    shiftStatuses,
     todayClocks,
     nextAction,
+    workDutyStatus,
+    workDutyStatusLabel: workDutyStatusLabel(workDutyStatus),
+    reminders,
     today,
   });
+}
+
+function addDaysTaipei(dateStr: string, days: number): string {
+  const d = new Date(`${dateStr}T12:00:00+08:00`);
+  d.setTime(d.getTime() + days * 86_400_000);
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Taipei",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(d);
 }
 
 function getEmployeeName(employees: unknown): string | undefined {

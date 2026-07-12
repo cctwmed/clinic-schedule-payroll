@@ -15,7 +15,7 @@ export async function loadComplianceData(
   const { data: assignments, error: assignError } = await supabase
     .from("shift_assignments")
     .select(
-      "employee_id, work_date, expected_clock_in, expected_clock_out, shift_types(code, name, planned_hours)"
+      "employee_id, work_date, expected_clock_in, expected_clock_out, note, shift_types(code, name, planned_hours)"
     )
     .gte("work_date", periodStart)
     .lte("work_date", periodEnd)
@@ -60,6 +60,23 @@ export async function loadComplianceData(
         employeeId: a.employee_id,
         type: "annual_leave",
       });
+      continue;
+    }
+    if (code === "CLOSED") {
+      const credit = parseClosureCredit(a.note, Number(st?.planned_hours ?? 0));
+      if (credit > 0) {
+        shifts.push({
+          date: a.work_date,
+          employeeId: a.employee_id,
+          shiftCode: "CLOSED",
+          shiftName: st?.name ?? "診所休診",
+          plannedHours: credit,
+          clockIn: null,
+          clockOut: null,
+          expectedStart: "00:00",
+          expectedEnd: "00:00",
+        });
+      }
       continue;
     }
 
@@ -109,6 +126,14 @@ export function compliancePeriod(year: number, month: number) {
     day: "2-digit",
   }).format(extStart);
   return { start: extStartStr, end, monthStart: start, monthEnd: end };
+}
+
+function parseClosureCredit(note: unknown, plannedHours: number): number {
+  if (typeof note === "string" && note.includes("closure_credit:")) {
+    const m = note.match(/closure_credit:([\d.]+)/);
+    if (m) return Number(m[1]);
+  }
+  return plannedHours > 0 ? plannedHours : 0;
 }
 
 function parseShiftTypeJoin(raw: unknown): {

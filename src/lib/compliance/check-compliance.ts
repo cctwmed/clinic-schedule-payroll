@@ -79,6 +79,10 @@ function getDailyHours(
   shifts: WorkShiftBlock[],
   clocks: ClockEvent[]
 ): { regular: number; total: number; overtime: number; expected: number } {
+  const closureCredit = shifts
+    .filter((s) => s.date === date && s.employeeId === employeeId && s.shiftCode === "CLOSED")
+    .reduce((sum, s) => sum + s.plannedHours, 0);
+
   const expected = getExpectedDailyFromShifts(date, employeeId, shifts);
 
   const dayClocks = clocks
@@ -87,6 +91,15 @@ function getDailyHours(
 
   const clockIn = dayClocks.find((c) => c.clockType === "clock_in");
   const clockOut = [...dayClocks].reverse().find((c) => c.clockType === "clock_out");
+
+  if (closureCredit > 0 && !clockIn && !clockOut) {
+    return {
+      regular: closureCredit,
+      total: closureCredit,
+      overtime: 0,
+      expected: closureCredit,
+    };
+  }
 
   let total: number;
   if (clockIn && clockOut) {

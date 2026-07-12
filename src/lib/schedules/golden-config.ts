@@ -6,23 +6,62 @@ export interface GoldenScheduleConfig {
   oddWeekTrackForA?: RotationTrack;
 }
 
-export function parseGoldenConfig(note: string | null): GoldenScheduleConfig | null {
-  if (!note) return null;
+export interface ClosureRecord {
+  date: string;
+  /** 公佈前預告休診 vs 公佈後臨時休診 */
+  mode: "planned" | "temporary";
+  /** 臨時休診：計入四週已達成工時 */
+  creditHours?: number;
+}
+
+export interface ScheduleMeta {
+  golden?: GoldenScheduleConfig;
+  closures?: ClosureRecord[];
+}
+
+export function parseScheduleMeta(note: string | null): ScheduleMeta {
+  if (!note) return {};
   try {
-    const parsed = JSON.parse(note) as { golden?: GoldenScheduleConfig };
-    if (parsed.golden?.employeeAId && parsed.golden?.employeeBId) {
-      return {
-        employeeAId: parsed.golden.employeeAId,
-        employeeBId: parsed.golden.employeeBId,
-        oddWeekTrackForA: parsed.golden.oddWeekTrackForA ?? 1,
-      };
-    }
+    const parsed = JSON.parse(note) as ScheduleMeta;
+    return parsed ?? {};
   } catch {
-    /* 舊版純文字備註 */
+    return {};
+  }
+}
+
+export function parseGoldenConfig(note: string | null): GoldenScheduleConfig | null {
+  const meta = parseScheduleMeta(note);
+  if (meta.golden?.employeeAId && meta.golden?.employeeBId) {
+    return {
+      employeeAId: meta.golden.employeeAId,
+      employeeBId: meta.golden.employeeBId,
+      oddWeekTrackForA: meta.golden.oddWeekTrackForA ?? 1,
+    };
   }
   return null;
 }
 
+export function serializeScheduleMeta(meta: ScheduleMeta): string {
+  return JSON.stringify(meta);
+}
+
 export function serializeGoldenConfig(config: GoldenScheduleConfig): string {
-  return JSON.stringify({ golden: { ...config, oddWeekTrackForA: config.oddWeekTrackForA ?? 1 } });
+  return serializeScheduleMeta({
+    golden: { ...config, oddWeekTrackForA: config.oddWeekTrackForA ?? 1 },
+  });
+}
+
+export function mergeScheduleMeta(
+  note: string | null,
+  patch: Partial<ScheduleMeta>
+): string {
+  const current = parseScheduleMeta(note);
+  return serializeScheduleMeta({ ...current, ...patch });
+}
+
+export function getClosureForDate(
+  note: string | null,
+  date: string
+): ClosureRecord | undefined {
+  return parseScheduleMeta(note).closures?.find((c) => c.date === date);
 }
