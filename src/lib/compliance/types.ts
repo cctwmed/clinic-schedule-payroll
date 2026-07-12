@@ -34,5 +34,5 @@ export interface ClockEvent {
 export interface DayOffRecord {
   date: string;
   employeeId: string;
-  type: "statutory" | "rest";
+  type: "statutory" | "rest" | "annual_leave";
 }

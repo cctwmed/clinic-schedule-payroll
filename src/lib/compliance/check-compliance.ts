@@ -56,7 +56,7 @@ function getEmployeeDayShifts(
     (s) =>
       s.date === date &&
       s.employeeId === employeeId &&
-      !["STATUTORY", "REST", "CLOSED"].includes(s.shiftCode)
+      !["STATUTORY", "REST", "ANNUAL_LEAVE", "CLOSED"].includes(s.shiftCode)
   );
 }
 
@@ -307,7 +307,7 @@ function checkRestBetweenShifts(
 ): ComplianceIssue[] {
   const issues: ComplianceIssue[] = [];
   const empShifts = shifts
-    .filter((s) => s.employeeId === employeeId && !["STATUTORY", "REST"].includes(s.shiftCode))
+    .filter((s) => s.employeeId === employeeId && !["STATUTORY", "REST", "ANNUAL_LEAVE"].includes(s.shiftCode))
     .sort((a, b) => {
       const cmp = a.date.localeCompare(b.date);
       if (cmp !== 0) return cmp;

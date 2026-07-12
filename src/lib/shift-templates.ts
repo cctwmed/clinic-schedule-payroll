@@ -88,6 +88,16 @@ export function buildGoldenShiftSlots(): ShiftSlotDef[] {
       color_hex: "#64748B",
       sort_order: 11,
     },
+    {
+      code: "ANNUAL_LEAVE",
+      name: "特休",
+      category: "custom",
+      default_clock_in: null,
+      default_clock_out: null,
+      planned_hours: 0,
+      color_hex: "#10B981",
+      sort_order: 12,
+    },
   ];
 }
 

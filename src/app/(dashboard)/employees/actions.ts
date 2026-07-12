@@ -36,7 +36,11 @@ function validateForm(form: EmployeeFormData): string | null {
   return null;
 }
 
-function toPayload(form: EmployeeFormData, clinicId: string, includeJobTitle = true) {
+function isMissingArrivalDateColumn(message: string): boolean {
+  return message.includes("arrival_date") && message.includes("schema cache");
+}
+
+function toPayload(form: EmployeeFormData, clinicId: string, includeJobTitle = true, includeArrivalDate = true) {
   const payload: Record<string, unknown> = {
     clinic_id: clinicId,
     employee_no: form.employee_no.trim(),
@@ -51,6 +55,9 @@ function toPayload(form: EmployeeFormData, clinicId: string, includeJobTitle = t
     labor_insurance_self_pay: form.labor_insurance_self_pay,
     health_insurance_self_pay: form.health_insurance_self_pay,
   };
+  if (includeArrivalDate) {
+    payload.arrival_date = form.hire_date;
+  }
   if (includeJobTitle) {
     payload.job_title = form.job_title;
   }
@@ -71,6 +78,14 @@ export async function createEmployee(form: EmployeeFormData) {
 
     if (error && isMissingJobTitleColumn(error.message)) {
       ({ error } = await supabase.from("employees").insert(toPayload(form, clinicId, false)));
+    }
+
+    if (error && isMissingArrivalDateColumn(error.message)) {
+      ({ error } = await supabase.from("employees").insert(toPayload(form, clinicId, true, false)));
+    }
+
+    if (error && isMissingJobTitleColumn(error.message) && isMissingArrivalDateColumn(error.message)) {
+      ({ error } = await supabase.from("employees").insert(toPayload(form, clinicId, false, false)));
     }
 
     if (error) {
@@ -105,6 +120,20 @@ export async function updateEmployee(id: string, form: EmployeeFormData) {
       ({ error } = await supabase
         .from("employees")
         .update(toPayload(form, clinicId, false))
+        .eq("id", id));
+    }
+
+    if (error && isMissingArrivalDateColumn(error.message)) {
+      ({ error } = await supabase
+        .from("employees")
+        .update(toPayload(form, clinicId, true, false))
+        .eq("id", id));
+    }
+
+    if (error && isMissingJobTitleColumn(error.message) && isMissingArrivalDateColumn(error.message)) {
+      ({ error } = await supabase
+        .from("employees")
+        .update(toPayload(form, clinicId, false, false))
         .eq("id", id));
     }
 

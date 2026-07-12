@@ -144,7 +144,7 @@ async function handleScheduleQuery(replyToken: string, lineUserId?: string) {
     const code = Array.isArray(st)
       ? (st[0] as { code?: string })?.code
       : (st as { code?: string } | null)?.code;
-    return code && !["STATUTORY", "REST", "CLOSED"].includes(code);
+    return code && !["STATUTORY", "REST", "ANNUAL_LEAVE", "CLOSED"].includes(code);
   });
 
   if (!workShifts.length) {

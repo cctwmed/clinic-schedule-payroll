@@ -23,6 +23,9 @@ export interface PayrollBonusInput {
   quarterlyBonus?: number;
   yearEndBonusManual?: number | null;
   yearEndBonusOverridden?: boolean;
+  annualLeavePayout?: number;
+  annualLeavePayoutDays?: number;
+  annualLeaveRecordId?: string | null;
 }
 
 export interface PayrollLineItem {
@@ -44,6 +47,9 @@ export interface PayrollLineItem {
   yearEndBonusCalculated: number;
   yearEndBonusOverridden: boolean;
   yearEndServiceMonths: number;
+  annualLeavePayout: number;
+  annualLeavePayoutDays: number;
+  annualLeaveRecordId: string | null;
   nonRecurringTotal: number;
   laborInsurance: number;
   healthInsurance: number;
@@ -87,6 +93,7 @@ export function recalcPayrollTotals(item: PayrollLineItem): PayrollLineItem {
     flexibleBonus: item.flexibleBonus,
     quarterlyBonus: item.quarterlyBonus,
     yearEndBonus: item.yearEndBonus,
+    annualLeavePayout: item.annualLeavePayout,
   });
   const recurringGross = item.basePay + item.overtimePay;
   const grossPay = recurringGross + nonRecurringTotal;
@@ -106,6 +113,8 @@ export function recalcPayrollTotals(item: PayrollLineItem): PayrollLineItem {
       yearEndBonusCalculated: item.yearEndBonusCalculated,
       yearEndBonusOverridden: item.yearEndBonusOverridden,
       yearEndServiceMonths: item.yearEndServiceMonths,
+      annualLeavePayout: item.annualLeavePayout,
+      annualLeavePayoutDays: item.annualLeavePayoutDays,
       nonRecurringTotal,
       recurringGross: round(recurringGross),
       insuranceBase: CLINIC_PAYROLL.MONTHLY_BASE_SALARY,
@@ -145,6 +154,9 @@ export function calculateEmployeePayroll(
   const quarterlyBonus = context?.includeQuarterlyBonus
     ? clampQuarterlyBonus(bonusInput.quarterlyBonus ?? 0)
     : 0;
+  const annualLeavePayout = Math.max(0, Math.round(bonusInput.annualLeavePayout ?? 0));
+  const annualLeavePayoutDays = Math.max(0, bonusInput.annualLeavePayoutDays ?? 0);
+  const annualLeaveRecordId = bonusInput.annualLeaveRecordId ?? null;
 
   let yearEndBonus = 0;
   let yearEndBonusCalculated = 0;
@@ -188,6 +200,9 @@ export function calculateEmployeePayroll(
     yearEndBonusCalculated,
     yearEndBonusOverridden,
     yearEndServiceMonths,
+    annualLeavePayout,
+    annualLeavePayoutDays,
+    annualLeaveRecordId,
     nonRecurringTotal: 0,
     laborInsurance,
     healthInsurance,
@@ -209,6 +224,8 @@ export function calculateEmployeePayroll(
       yearEndBonusOverridden,
       yearEndServiceMonths,
       yearEndFormula,
+      annualLeavePayout,
+      annualLeavePayoutDays,
       salaryCategory: "非經常性薪資不計勞健保基數",
       otRate1: CLINIC_PAYROLL.OT_RATE_WEEKDAY_1,
       otRate2: CLINIC_PAYROLL.OT_RATE_WEEKDAY_2,

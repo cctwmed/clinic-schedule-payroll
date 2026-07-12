@@ -68,7 +68,10 @@ export async function fetchSchedulePageData(year: number, month: number) {
   );
   const offDayShiftTypes = ((shiftTypes ?? []) as ShiftType[]).filter(
     (s) =>
-      OFF_DAY_CATEGORIES.includes(s.category) || s.code === "STATUTORY" || s.code === "REST"
+      OFF_DAY_CATEGORIES.includes(s.category) ||
+      s.code === "STATUTORY" ||
+      s.code === "REST" ||
+      s.code === "ANNUAL_LEAVE"
   );
 
   const compPeriod = compliancePeriod(year, month);
@@ -309,7 +312,10 @@ export async function applyClinicGoldenTemplate() {
 
   for (const slot of template.slots) {
     const isActive =
-      slot.planned_hours > 0 || slot.code === "STATUTORY" || slot.code === "REST";
+      slot.planned_hours > 0 ||
+      slot.code === "STATUTORY" ||
+      slot.code === "REST" ||
+      slot.code === "ANNUAL_LEAVE";
 
     const { data: existing } = await supabase
       .from("shift_types")

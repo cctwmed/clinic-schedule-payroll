@@ -6,6 +6,7 @@ import { DashboardHeader } from "@/components/layout/sidebar";
 import { ComplianceAlertList } from "@/components/compliance/compliance-alert-list";
 import { savePayrollRun } from "@/app/(dashboard)/payroll/actions";
 import type { ComplianceIssue } from "@/lib/compliance/types";
+import type { LeavePayoutDue } from "@/lib/leave/service";
 import type { AnnualPayrollSummary } from "@/lib/payroll/annual-summary";
 import { CLINIC_PAYROLL } from "@/lib/payroll/constants";
 import { GOLDEN_SCHEDULE } from "@/lib/shift-templates";
@@ -38,6 +39,7 @@ interface PayrollPageClientProps {
   isYearEndMonth: boolean;
   quarterLabel: string | null;
   annualSummary: AnnualPayrollSummary | null;
+  leavePayoutsDue: LeavePayoutDue[];
 }
 
 export function PayrollPageClient({
@@ -53,6 +55,7 @@ export function PayrollPageClient({
   isYearEndMonth,
   quarterLabel,
   annualSummary,
+  leavePayoutsDue,
 }: PayrollPageClientProps) {
   const router = useRouter();
   const [lineItems, setLineItems] = useState(initialLineItems);
@@ -69,6 +72,8 @@ export function PayrollPageClient({
   const totalNet = lineItems.reduce((s, i) => s + i.netPay, 0);
   const totalGross = lineItems.reduce((s, i) => s + i.grossPay, 0);
   const totalNonRecurring = lineItems.reduce((s, i) => s + i.nonRecurringTotal, 0);
+  const totalLeavePayout = lineItems.reduce((s, i) => s + i.annualLeavePayout, 0);
+  const hasLeavePayout = totalLeavePayout > 0 || leavePayoutsDue.length > 0;
 
   function changeMonth(delta: number) {
     let m = month + delta;
@@ -196,6 +201,56 @@ export function PayrollPageClient({
           <div className="rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800">
             {message}
           </div>
+        )}
+
+        {hasLeavePayout && (
+          <section className="rounded-xl border border-emerald-200 bg-emerald-50/60 p-5">
+            <h3 className="text-base font-semibold text-emerald-900">特休未休畢折現</h3>
+            <p className="mt-1 text-sm text-emerald-800">
+              依勞基法第 38 條，到期或離職時未休畢特休以日薪{" "}
+              {formatMoney(CLINIC_PAYROLL.ANNUAL_LEAVE_DAILY_RATE)}（月薪 ÷ 30）折現，併入當月非經常性薪資。
+            </p>
+            <div className="mt-4 overflow-x-auto rounded-lg border border-emerald-200 bg-white">
+              <table className="min-w-full text-sm">
+                <thead className="bg-emerald-50 text-left text-xs font-semibold text-emerald-800">
+                  <tr>
+                    <th className="px-4 py-2">員工</th>
+                    <th className="px-4 py-2">未休天數</th>
+                    <th className="px-4 py-2">折現金額</th>
+                    <th className="px-4 py-2">原因</th>
+                    <th className="px-4 py-2">到期日</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-emerald-100">
+                  {leavePayoutsDue.map((p) => (
+                    <tr key={p.recordId}>
+                      <td className="px-4 py-2 font-medium">{p.employeeName}</td>
+                      <td className="px-4 py-2">{p.unusedDays} 天</td>
+                      <td className="px-4 py-2 font-medium">{formatMoney(p.payoutAmount)}</td>
+                      <td className="px-4 py-2">
+                        {p.reason === "expiry" ? "週期到期" : "離職結算"}
+                      </td>
+                      <td className="px-4 py-2 text-slate-600">{p.expiryDate}</td>
+                    </tr>
+                  ))}
+                  {leavePayoutsDue.length === 0 &&
+                    lineItems
+                      .filter((i) => i.annualLeavePayout > 0)
+                      .map((i) => (
+                        <tr key={i.employeeId}>
+                          <td className="px-4 py-2 font-medium">{i.employeeName}</td>
+                          <td className="px-4 py-2">{i.annualLeavePayoutDays} 天</td>
+                          <td className="px-4 py-2 font-medium">
+                            {formatMoney(i.annualLeavePayout)}
+                          </td>
+                          <td className="px-4 py-2">已結算紀錄</td>
+                          <td className="px-4 py-2">—</td>
+                        </tr>
+                      ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
         )}
 
         {isQuarterlyMonth && (
@@ -402,6 +457,7 @@ export function PayrollPageClient({
                       <th className="px-3 py-3">彈性獎金</th>
                       {isQuarterlyMonth && <th className="px-3 py-3">季獎金</th>}
                       {isYearEndMonth && <th className="px-3 py-3">年終</th>}
+                      <th className="px-3 py-3">特休折現</th>
                       <th className="px-3 py-3">勞保</th>
                       <th className="px-3 py-3">健保</th>
                       <th className="px-3 py-3">實發</th>
@@ -444,6 +500,11 @@ export function PayrollPageClient({
                             )}
                           </td>
                         )}
+                        <td className="px-3 py-3 text-emerald-700">
+                          {item.annualLeavePayout > 0
+                            ? `${formatMoney(item.annualLeavePayout)}（${item.annualLeavePayoutDays}天）`
+                            : "—"}
+                        </td>
                         <td className="px-3 py-3 text-red-600">
                           -{formatMoney(item.laborInsurance)}
                         </td>
@@ -475,6 +536,9 @@ function SalaryStructureBanner() {
         <li>
           平日加班／特種出勤時薪基數 {CLINIC_PAYROLL.OT_HOURLY_RATE} 元；國定假日／颱風天{" "}
           {formatMoney(CLINIC_PAYROLL.SPECIAL_ATTENDANCE_DAILY)}/天
+        </li>
+        <li>
+          特休未休畢折現：(月薪 ÷ 30) × 未休天數，到期或離職時併入當月非經常性薪資
         </li>
         <li>
           季獎金固定於 3、6、9、12 月發放，金額 {CLINIC_PAYROLL.QUARTERLY_BONUS_MIN.toLocaleString("zh-TW")}–

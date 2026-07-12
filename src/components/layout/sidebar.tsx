@@ -7,6 +7,7 @@ const navItems = [
   { href: "/", label: "總覽", icon: "🏠" },
   { href: "/employees", label: "員工管理", icon: "👥" },
   { href: "/schedules", label: "排班管理", icon: "📅" },
+  { href: "/leave", label: "特休管理", icon: "🏖️" },
   { href: "/clock-records", label: "打卡紀錄", icon: "📍" },
   { href: "/payroll", label: "薪資結算", icon: "💰" },
 ];

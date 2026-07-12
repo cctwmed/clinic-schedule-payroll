@@ -179,7 +179,7 @@ export function EmployeeModal({ open, employee, onClose, onSuccess }: EmployeeMo
                   ))}
                 </select>
               </Field>
-              <Field label="到職日" required>
+              <Field label="到職日（特休週年制起算）" required>
                 <input
                   type="date"
                   className={inputClass}

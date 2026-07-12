@@ -23,7 +23,7 @@ export interface ClockMatchResult {
   shiftLabel: string | null;
 }
 
-const OFF_SHIFT_CODES = new Set(["STATUTORY", "REST", "CLOSED"]);
+const OFF_SHIFT_CODES = new Set(["STATUTORY", "REST", "ANNUAL_LEAVE", "CLOSED"]);
 
 /** 無當日排班時，上班打卡遲到的預設基準（早診到班） */
 export const DEFAULT_CLOCK_IN_TIME = "08:20";

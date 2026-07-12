@@ -54,6 +54,14 @@ export async function loadComplianceData(
       });
       continue;
     }
+    if (code === "ANNUAL_LEAVE") {
+      dayOffs.push({
+        date: a.work_date,
+        employeeId: a.employee_id,
+        type: "annual_leave",
+      });
+      continue;
+    }
 
     shifts.push({
       date: a.work_date,

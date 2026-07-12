@@ -17,6 +17,7 @@ import {
   getQuarterLabel,
 } from "@/lib/payroll/constants";
 import { fetchAnnualPayrollSummary, type AnnualPayrollSummary } from "@/lib/payroll/annual-summary";
+import { findLeavePayoutsDue, markLeaveRecordSettled } from "@/lib/leave/service";
 import {
   calculateEmployeePayroll,
   type PayrollLineItem,
@@ -28,6 +29,9 @@ interface SavedBonusBreakdown {
   yearEndBonus?: number;
   yearEndBonusManual?: number;
   yearEndBonusOverridden?: boolean;
+  annualLeavePayout?: number;
+  annualLeavePayoutDays?: number;
+  annualLeaveRecordId?: string;
 }
 
 export async function fetchPayrollPageData(year: number, month: number) {
@@ -96,8 +100,12 @@ export async function fetchPayrollPageData(year: number, month: number) {
   const includeQuarterly = isQuarterlyBonusMonth(month);
   const includeYearEnd = isYearEndBonusMonth(month);
 
+  const leavePayouts = await findLeavePayoutsDue(clinic.id, year, month);
+  const payoutByEmployee = new Map(leavePayouts.map((p) => [p.employeeId, p]));
+
   const lineItems: PayrollLineItem[] = (employees ?? []).map((emp) => {
     const saved = savedBonuses.get(emp.id);
+    const due = payoutByEmployee.get(emp.id);
     return calculateEmployeePayroll(
       {
         id: emp.id,
@@ -118,6 +126,9 @@ export async function fetchPayrollPageData(year: number, month: number) {
         quarterlyBonus: saved?.quarterlyBonus ?? 0,
         yearEndBonusManual: saved?.yearEndBonusManual ?? saved?.yearEndBonus,
         yearEndBonusOverridden: saved?.yearEndBonusOverridden ?? false,
+        annualLeavePayout: due?.payoutAmount ?? saved?.annualLeavePayout ?? 0,
+        annualLeavePayoutDays: due?.unusedDays ?? saved?.annualLeavePayoutDays ?? 0,
+        annualLeaveRecordId: due?.recordId ?? saved?.annualLeaveRecordId,
       },
       {
         year,
@@ -156,6 +167,7 @@ export async function fetchPayrollPageData(year: number, month: number) {
     isYearEndMonth: includeYearEnd,
     quarterLabel: getQuarterLabel(month),
     annualSummary,
+    leavePayoutsDue: leavePayouts,
   };
 }
 
@@ -211,6 +223,9 @@ export async function savePayrollRun(
           yearEndBonusOverridden: item.yearEndBonusOverridden,
           yearEndBonusManual: item.yearEndBonusOverridden ? item.yearEndBonus : undefined,
           yearEndServiceMonths: item.yearEndServiceMonths,
+          annualLeavePayout: item.annualLeavePayout,
+          annualLeavePayoutDays: item.annualLeavePayoutDays,
+          annualLeaveRecordId: item.annualLeaveRecordId,
           nonRecurringTotal: item.nonRecurringTotal,
           recurringGross: item.recurringGross,
           monthlyBaseSalary: item.monthlyBaseSalary,
@@ -222,9 +237,19 @@ export async function savePayrollRun(
       },
       { onConflict: "payroll_run_id,employee_id" }
     );
+
+    if (item.annualLeaveRecordId && item.annualLeavePayout > 0) {
+      await markLeaveRecordSettled(
+        item.annualLeaveRecordId,
+        item.annualLeavePayoutDays,
+        item.annualLeavePayout,
+        run.id
+      );
+    }
   }
 
   revalidatePath("/payroll");
+  revalidatePath("/leave");
   return { success: true as const, runId: run.id };
 }
 
@@ -242,6 +267,10 @@ function buildRunNote(
   if (isYearEndBonusMonth(month)) {
     const total = lineItems.reduce((s, i) => s + i.yearEndBonus, 0);
     parts.push(`年終獎金 ${total} 元`);
+  }
+  const leaveTotal = lineItems.reduce((s, i) => s + i.annualLeavePayout, 0);
+  if (leaveTotal > 0) {
+    parts.push(`特休折現 ${leaveTotal} 元`);
   }
   return parts.join("；");
 }

@@ -32,6 +32,7 @@ export default async function PayrollPage({ searchParams }: PageProps) {
           isYearEndMonth={data.isYearEndMonth}
           quarterLabel={data.quarterLabel}
           annualSummary={data.annualSummary}
+          leavePayoutsDue={data.leavePayoutsDue}
         />
       </>
     );

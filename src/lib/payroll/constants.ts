@@ -18,6 +18,8 @@ export const CLINIC_PAYROLL = {
   /** 季度績效獎金金額區間（元） */
   QUARTERLY_BONUS_MIN: 2_000,
   QUARTERLY_BONUS_MAX: 6_000,
+  /** 特休未休畢折現日薪基數（月薪 / 30） */
+  ANNUAL_LEAVE_DAILY_RATE: 34_000 / 30,
   OT_RATE_WEEKDAY_1: 1.34,
   OT_RATE_WEEKDAY_2: 1.67,
 } as const;
@@ -47,6 +49,12 @@ export function sumNonRecurringBonus(item: {
   flexibleBonus: number;
   quarterlyBonus: number;
   yearEndBonus: number;
+  annualLeavePayout?: number;
 }): number {
-  return item.flexibleBonus + item.quarterlyBonus + item.yearEndBonus;
+  return (
+    item.flexibleBonus +
+    item.quarterlyBonus +
+    item.yearEndBonus +
+    (item.annualLeavePayout ?? 0)
+  );
 }

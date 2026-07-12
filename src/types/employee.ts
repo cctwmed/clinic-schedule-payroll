@@ -22,6 +22,7 @@ export interface Employee {
   email: string | null;
   phone: string | null;
   hire_date: string;
+  arrival_date?: string | null;
   hourly_wage: number;
   labor_insurance_self_pay: number;
   health_insurance_self_pay: number;
