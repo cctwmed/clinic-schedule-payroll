@@ -15,6 +15,9 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       ok: true,
       sentCount: result.sentCount,
+      skippedCount: result.skippedCount,
+      linePushEnabled: process.env.ENABLE_LINE_MISSED_CLOCK_PUSH !== "false",
+      policy: "Web-First；漏打卡超過 2.5h 可選 LINE Push（每類型每日 1 則）",
       alerts: result.alerts,
     });
   } catch (err) {

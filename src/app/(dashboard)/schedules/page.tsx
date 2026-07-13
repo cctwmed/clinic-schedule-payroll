@@ -31,6 +31,7 @@ export default async function SchedulesPage({ searchParams }: PageProps) {
           daysInMonth={data.daysInMonth}
           complianceIssues={data.complianceIssues}
           goldenConfig={data.goldenConfig}
+          closures={data.closures}
         />
       </>
     );

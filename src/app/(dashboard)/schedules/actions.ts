@@ -55,6 +55,7 @@ export async function fetchSchedulePageData(year: number, month: number) {
 
   const schedule = await getOrCreateSchedule(clinic.id, year, month);
   const goldenConfig = parseGoldenConfig(schedule.note);
+  const scheduleMeta = parseScheduleMeta(schedule.note);
 
   const { data: assignments, error: assignError } = await supabase
     .from("shift_assignments")
@@ -102,6 +103,7 @@ export async function fetchSchedulePageData(year: number, month: number) {
     daysInMonth: getDaysInMonth(year, month),
     complianceIssues,
     goldenConfig,
+    closures: scheduleMeta.closures ?? [],
   };
 }
 

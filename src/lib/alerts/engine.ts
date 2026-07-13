@@ -1,64 +1,27 @@
 import { supabase } from "@/lib/supabase";
 import { taipeiToday } from "@/lib/clinic";
-import { pushLineMessage, buildClockReminderMessage } from "@/lib/line/client";
+import { pushLineMessage, buildMissedClockReminderMessage } from "@/lib/line/client";
+import {
+  findMissedClockAlerts,
+  isLineMissedClockPushEnabled,
+  missedClockRuleCode,
+  wasLineNotifiedToday,
+  type MissedClockAlert,
+} from "@/lib/alerts/missed-clock-alerts";
 
 export interface AlertResult {
-  type: "missing_clock_in" | "missing_break";
+  type: "missing_clock_in" | "missing_clock_out" | "stale_clock_out" | "missing_break";
   employeeId: string;
   employeeName: string;
   lineUserId: string | null;
   message: string;
   sent: boolean;
+  skipped?: boolean;
+  skipReason?: string;
   error?: string;
 }
 
-/** 忘記打卡：今日有排班且班別已開始，但無 clock_in 紀錄 */
-export async function checkMissingClockIn(): Promise<AlertResult[]> {
-  const today = taipeiToday();
-  const now = new Date();
-  const taipeiTime = now.toLocaleTimeString("en-GB", { timeZone: "Asia/Taipei", hour12: false });
-
-  const { data: assignments, error } = await supabase
-    .from("shift_assignments")
-    .select("id, employee_id, expected_clock_in, employees(name, employee_line_bindings(line_user_id, is_active))")
-    .eq("work_date", today)
-    .neq("status", "cancelled");
-
-  if (error) throw new Error(error.message);
-
-  const results: AlertResult[] = [];
-
-  for (const assignment of assignments ?? []) {
-    const expectedIn = String(assignment.expected_clock_in).slice(0, 5);
-    if (taipeiTime < expectedIn) continue;
-
-    const employee = parseEmployeeJoin(assignment.employees);
-    const binding = employee?.bindings?.find((b) => b.is_active);
-
-    const { count } = await supabase
-      .from("clock_records")
-      .select("*", { count: "exact", head: true })
-      .eq("employee_id", assignment.employee_id)
-      .eq("clock_type", "clock_in")
-      .eq("clock_date", today);
-
-    if ((count ?? 0) > 0) continue;
-
-    const message = `您今日 ${expectedIn} 有排班，但尚未打卡，請盡快完成上班打卡。`;
-    results.push({
-      type: "missing_clock_in",
-      employeeId: assignment.employee_id,
-      employeeName: employee?.name ?? "員工",
-      lineUserId: binding?.line_user_id ?? null,
-      message,
-      sent: false,
-    });
-  }
-
-  return results;
-}
-
-/** 連續工作 4 小時未休息：有 clock_in 但無 break_start / clock_out，且已超過 4 小時 */
+/** 連續工作 4 小時未休息（僅 Web 紀錄，不 Push LINE 以節省費用） */
 export async function checkMissingBreak(): Promise<AlertResult[]> {
   const today = taipeiToday();
 
@@ -93,44 +56,83 @@ export async function checkMissingBreak(): Promise<AlertResult[]> {
     if (hoursWorked < 4) continue;
 
     const employee = parseEmployeeJoin(clockIn.employees);
-    const binding = employee?.bindings?.find((b) => b.is_active);
 
-    const message = `您已連續工作超過 4 小時，請記得休息或打下班卡。`;
     results.push({
       type: "missing_break",
       employeeId: clockIn.employee_id,
       employeeName: employee?.name ?? "員工",
-      lineUserId: binding?.line_user_id ?? null,
-      message,
+      lineUserId: null,
+      message: "您已連續工作超過 4 小時，請記得休息或打下班卡。",
       sent: false,
+      skipped: true,
+      skipReason: "休息提醒僅站內顯示，不發 LINE Push",
     });
   }
 
   return results;
 }
 
+/**
+ * 執行漏打卡提醒：
+ * 1. Web-First：同仁開啟 LIFF 時由 evaluateClockReminders 顯示橫幅
+ * 2. 必要時 LINE Push：超過表定時間 2.5 小時仍漏打卡（每類型每日最多 1 則）
+ */
 export async function runClockAlerts(): Promise<{
   alerts: AlertResult[];
   sentCount: number;
+  skippedCount: number;
 }> {
-  const missingClock = await checkMissingClockIn();
-  const missingBreak = await checkMissingBreak();
-  const allAlerts = [...missingClock, ...missingBreak];
+  const missedAlerts = await findMissedClockAlerts();
+  const breakAlerts = await checkMissingBreak();
 
+  const lineEnabled = isLineMissedClockPushEnabled();
+  const results: AlertResult[] = [...breakAlerts];
   let sentCount = 0;
+  let skippedCount = breakAlerts.length;
 
-  for (const alert of allAlerts) {
-    if (!alert.lineUserId) {
-      alert.error = "未綁定 LINE";
+  for (const alert of missedAlerts) {
+    const ruleCode = missedClockRuleCode(alert.type);
+    const base: AlertResult = {
+      type: alert.type,
+      employeeId: alert.employeeId,
+      employeeName: alert.employeeName,
+      lineUserId: alert.lineUserId,
+      message: alert.message,
+      sent: false,
+    };
+
+    if (!lineEnabled) {
+      results.push({
+        ...base,
+        skipped: true,
+        skipReason: "ENABLE_LINE_MISSED_CLOCK_PUSH=false，僅站內提醒",
+      });
+      skippedCount++;
       continue;
     }
 
-    const msg = buildClockReminderMessage(alert.employeeName, alert.message);
-    const result = await pushLineMessage(alert.lineUserId, [msg]);
+    if (!alert.lineUserId) {
+      results.push({ ...base, skipped: true, skipReason: "未綁定 LINE" });
+      skippedCount++;
+      continue;
+    }
 
-    if (result.ok) {
-      alert.sent = true;
+    if (await wasLineNotifiedToday(alert.employeeId, ruleCode)) {
+      results.push({ ...base, skipped: true, skipReason: "今日已 Push 過" });
+      skippedCount++;
+      continue;
+    }
+
+    const msg = buildMissedClockReminderMessage(
+      alert.employeeName,
+      alert.message,
+      alert.suggestedAction
+    );
+    const pushResult = await pushLineMessage(alert.lineUserId, [msg]);
+
+    if (pushResult.ok) {
       sentCount++;
+      results.push({ ...base, sent: true });
 
       const { data: employee } = await supabase
         .from("employees")
@@ -138,48 +140,30 @@ export async function runClockAlerts(): Promise<{
         .eq("id", alert.employeeId)
         .single();
 
-      const { data: rule } = await supabase
-        .from("compliance_rules")
-        .select("id")
-        .is("clinic_id", null)
-        .eq("rule_code", alert.type === "missing_clock_in" ? "MISSING_CLOCK_OUT" : "MAX_DAILY_HOURS")
-        .maybeSingle();
-
-      if (employee?.clinic_id && rule?.id) {
-        await supabase.from("compliance_alerts").insert({
-          clinic_id: employee.clinic_id,
-          rule_id: rule.id,
+      if (employee?.clinic_id) {
+        await supabase.from("notifications").insert({
           employee_id: alert.employeeId,
-          alert_date: taipeiToday(),
-          severity: "warning",
-          rule_code: alert.type,
-          message: alert.message,
-          status: "open",
-          notified_at: new Date().toISOString(),
-          notified_via: ["line"],
+          clinic_id: employee.clinic_id,
+          type: "clock_anomaly",
+          title: "漏打卡提醒",
+          body: alert.message,
+          payload: { ruleCode, alertType: alert.type, workDate: alert.workDate },
+          sent_at: new Date().toISOString(),
         });
       }
     } else {
-      alert.error = result.error;
+      results.push({ ...base, error: pushResult.error });
     }
   }
 
-  return { alerts: allAlerts, sentCount };
+  return { alerts: results, sentCount, skippedCount };
 }
 
-function parseEmployeeJoin(raw: unknown): {
-  name: string;
-  bindings?: { line_user_id: string; is_active: boolean }[];
-} | null {
+function parseEmployeeJoin(raw: unknown): { name: string } | null {
   if (!raw) return null;
   const emp = Array.isArray(raw) ? raw[0] : raw;
   if (!emp || typeof emp !== "object") return null;
-  const e = emp as { name?: string; employee_line_bindings?: unknown };
-  const bindingsRaw = e.employee_line_bindings;
-  const bindings = Array.isArray(bindingsRaw)
-    ? (bindingsRaw as { line_user_id: string; is_active: boolean }[])
-    : bindingsRaw
-      ? [bindingsRaw as { line_user_id: string; is_active: boolean }]
-      : [];
-  return { name: e.name ?? "員工", bindings };
+  return { name: (emp as { name?: string }).name ?? "員工" };
 }
+
+export type { MissedClockAlert };

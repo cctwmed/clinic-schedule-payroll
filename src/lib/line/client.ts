@@ -248,9 +248,24 @@ export function buildSchedulePublishedMessage(
 }
 
 export function buildClockReminderMessage(employeeName: string, reason: string): LineTextMessage {
-  const liffUrl = getLiffClockUrl();
+  return buildMissedClockReminderMessage(employeeName, reason);
+}
+
+/** 漏打卡 LINE Push（含 LIFF 連結，Web-First 策略下的必要推播） */
+export function buildMissedClockReminderMessage(
+  employeeName: string,
+  reason: string,
+  suggestedAction?: "clock_in" | "clock_out"
+): LineTextMessage {
+  const liffUrl = getLiffClockUrl(suggestedAction);
   return {
     type: "text",
-    text: [`⏰ ${employeeName}，系統提醒：${reason}`, "", `立即打卡：${liffUrl}`].join("\n"),
+    text: [
+      `⏰ ${employeeName}，系統提醒：`,
+      reason,
+      "",
+      "請優先開啟打卡頁完成操作（站內也可補登）：",
+      liffUrl,
+    ].join("\n"),
   };
 }

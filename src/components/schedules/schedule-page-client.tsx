@@ -7,6 +7,7 @@ import { ComplianceAlertList } from "@/components/compliance/compliance-alert-li
 import {
   applyClinicGoldenTemplate,
   generateGoldenSchedule,
+  markClinicClosureDay,
   publishSchedule,
   saveScheduleAssignment,
 } from "@/app/(dashboard)/schedules/actions";
@@ -14,7 +15,7 @@ import type { ComplianceIssue } from "@/lib/compliance/types";
 import type { Clinic } from "@/lib/clinic";
 import { GOLDEN_SCHEDULE } from "@/lib/shift-templates";
 import { getRotationLegend } from "@/lib/schedules/golden-rotation";
-import type { GoldenScheduleConfig } from "@/lib/schedules/golden-config";
+import type { GoldenScheduleConfig, ClosureRecord } from "@/lib/schedules/golden-config";
 import { displayJobTitle } from "@/types/employee";
 import type {
   DayAssignmentMap,
@@ -41,6 +42,7 @@ interface SchedulePageClientProps {
   daysInMonth: number;
   complianceIssues: ComplianceIssue[];
   goldenConfig: GoldenScheduleConfig | null;
+  closures: ClosureRecord[];
 }
 
 export function SchedulePageClient({
@@ -55,6 +57,7 @@ export function SchedulePageClient({
   daysInMonth,
   complianceIssues,
   goldenConfig,
+  closures: initialClosures,
 }: SchedulePageClientProps) {
   const router = useRouter();
   const [year] = useState(initialYear);
@@ -66,7 +69,16 @@ export function SchedulePageClient({
   const [oddWeekTrackForA, setOddWeekTrackForA] = useState<1 | 2>(
     goldenConfig?.oddWeekTrackForA ?? 1
   );
+  const [closureDate, setClosureDate] = useState("");
+  const [closureCreditHours, setClosureCreditHours] = useState<number>(
+    GOLDEN_SCHEDULE.DUAL_DAY_HOURS
+  );
   const [isPending, startTransition] = useTransition();
+
+  const closureDateSet = useMemo(
+    () => new Set(initialClosures.map((c) => c.date)),
+    [initialClosures]
+  );
 
   const isPublished = schedule.status === "published";
   const allColumns = [...shiftTypes, ...offDayShiftTypes];
@@ -148,6 +160,46 @@ export function SchedulePageClient({
         return;
       }
       setMessage(`已產生 ${result.count} 筆排班（雙人全正職輪替）`);
+      router.refresh();
+    });
+  }
+
+  function handleMarkClosure() {
+    if (!closureDate) {
+      setMessage("請選擇休診日期");
+      return;
+    }
+    const monthPrefix = `${year}-${String(month).padStart(2, "0")}`;
+    if (!closureDate.startsWith(monthPrefix)) {
+      setMessage("請選擇本月份內的日期");
+      return;
+    }
+
+    const modeLabel = isPublished ? "臨時休診（已發布班表）" : "預告休診（公佈前）";
+    if (
+      !confirm(
+        `確定將 ${closureDate} 標記為休診日？\n模式：${modeLabel}\n工時折抵：${closureCreditHours} 小時`
+      )
+    ) {
+      return;
+    }
+
+    startTransition(async () => {
+      const result = await markClinicClosureDay(
+        schedule.id,
+        closureDate,
+        isPublished ? "temporary" : "planned",
+        closureCreditHours
+      );
+      if (!result.success) {
+        setMessage(result.error);
+        return;
+      }
+      setMessage(
+        isPublished
+          ? `已標記 ${closureDate} 為臨時休診，工時 ${closureCreditHours}h 計入四週結算（不扣薪）`
+          : `已標記 ${closureDate} 為休診日，員工該日改為休息日`
+      );
       router.refresh();
     });
   }
@@ -321,6 +373,67 @@ export function SchedulePageClient({
 
         <ComplianceAlertList issues={complianceIssues} />
 
+        <section className="rounded-xl border border-slate-300 bg-slate-50/80 p-4">
+          <h3 className="text-sm font-semibold text-slate-800">休診日設定</h3>
+          <p className="mt-1 text-xs leading-relaxed text-slate-600">
+            <strong>全天休診</strong>（春節、颱風全停、國定假日不開診）→ 用下方按鈕標記。
+            <strong>只看早診</strong>（半日）→ 不必按休診，直接在班表格子裡把「晚診」清空即可。
+            <strong>國定假日仍出勤</strong> → 維持排班＋打卡，薪資頁依特殊出勤 1,133 元/天結算。
+          </p>
+
+          <div className="mt-3 flex flex-wrap items-end gap-3">
+            <label className="block text-xs">
+              <span className="mb-1 block font-medium text-slate-700">休診日期</span>
+              <input
+                type="date"
+                value={closureDate}
+                onChange={(e) => setClosureDate(e.target.value)}
+                disabled={isPending}
+                className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+              />
+            </label>
+            {isPublished && (
+              <label className="block text-xs">
+                <span className="mb-1 block font-medium text-slate-700">
+                  臨時休診工時折抵
+                </span>
+                <select
+                  value={closureCreditHours}
+                  onChange={(e) => setClosureCreditHours(Number(e.target.value))}
+                  disabled={isPending}
+                  className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                >
+                  <option value={GOLDEN_SCHEDULE.DUAL_DAY_HOURS}>
+                    全天 {GOLDEN_SCHEDULE.DUAL_DAY_HOURS}h
+                  </option>
+                  <option value={GOLDEN_SCHEDULE.HALF_DAY_HOURS}>
+                    半日 {GOLDEN_SCHEDULE.HALF_DAY_HOURS}h
+                  </option>
+                </select>
+              </label>
+            )}
+            <button
+              type="button"
+              onClick={handleMarkClosure}
+              disabled={isPending}
+              className="rounded-lg bg-slate-700 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-60"
+            >
+              標記休診日
+            </button>
+          </div>
+
+          {initialClosures.length > 0 && (
+            <ul className="mt-3 space-y-1 text-xs text-slate-600">
+              {initialClosures.map((c) => (
+                <li key={c.date}>
+                  {c.date} · {c.mode === "planned" ? "預告休診→休息日" : "臨時休診"} · 折抵{" "}
+                  {c.creditHours ?? GOLDEN_SCHEDULE.DUAL_DAY_HOURS}h
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+
         {message && (
           <div className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">
             {message}
@@ -366,13 +479,26 @@ export function SchedulePageClient({
                       ? "雙診 7.67h"
                       : "半日 3.67h";
 
+                    const isClosureDay = closureDateSet.has(workDate);
+
                     return (
                       <tr
                         key={workDate}
-                        className={isWeekend ? "bg-slate-50/60" : "hover:bg-slate-50/40"}
+                        className={
+                          isClosureDay
+                            ? "bg-slate-200/70"
+                            : isWeekend
+                              ? "bg-slate-50/60"
+                              : "hover:bg-slate-50/40"
+                        }
                       >
                         <td className="sticky left-0 z-10 bg-inherit px-3 py-2 font-medium text-slate-800">
                           {month}/{day}
+                          {isClosureDay && (
+                            <span className="ml-1 rounded bg-slate-600 px-1.5 py-0.5 text-[10px] text-white">
+                              休診
+                            </span>
+                          )}
                         </td>
                         <td className="px-3 py-2 text-slate-500">{weekdayLabel(workDate)}</td>
                         <td className="px-3 py-2 text-xs text-slate-400">{sessionLabel}</td>
