@@ -73,7 +73,14 @@ export function MobileApp({ liffId }: MobileAppProps) {
       setPhase("ready");
     } catch (err) {
       setPhase("error");
-      setError(err instanceof Error ? err.message : "LIFF 初始化失敗");
+      const msg = err instanceof Error ? err.message : "LIFF 初始化失敗";
+      if (/developer|developing|400/i.test(msg)) {
+        setError(
+          "LINE Channel 仍為「開發中」，一般使用者無法開啟。請管理員到 LINE Developers 將 Channel 2010558215 改為「已發布」，或將您的 LINE 加為 Tester。"
+        );
+      } else {
+        setError(msg);
+      }
     }
   }, [liffId]);
 
