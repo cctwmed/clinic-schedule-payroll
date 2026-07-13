@@ -5,6 +5,7 @@ import { formatMoney } from "@/lib/payroll/calculator";
 
 interface PayslipTabProps {
   lineUserId: string;
+  onGoBind?: () => void;
 }
 
 interface PayslipData {
@@ -17,33 +18,67 @@ interface PayslipData {
     fullAttendanceBonus: number;
     fixedTotal: number;
     overtimePay: number;
+    holidayDoublePay: number;
+    holidayOvertimePay: number;
+    holidayPayTotal: number;
     laborInsurance: number;
     healthInsurance: number;
     netPay: number;
   };
   hours: { regular: number; overtime: number; overtimeTier2: number };
   overtimeDetail: { hourlyRate: number; tier1: string; tier2: string };
+  holidayAttendance?: {
+    days: number;
+    doublePayTotal: number;
+    overtimePayTotal: number;
+    totalPay: number;
+    doubleDaily: number;
+    tier1Hourly: number;
+    tier2Hourly: number;
+    details: {
+      date: string;
+      holidayName: string | null;
+      totalWorkHours: number;
+      scenario: string;
+      doublePay: number;
+      overtimePay: number;
+      summary: string;
+    }[];
+  };
   note: string;
 }
 
-export function PayslipTab({ lineUserId }: PayslipTabProps) {
+export function PayslipTab({ lineUserId, onGoBind }: PayslipTabProps) {
   const now = new Date();
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth() + 1);
   const [data, setData] = useState<PayslipData | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [needsBind, setNeedsBind] = useState(false);
 
   useEffect(() => {
+    setLoading(true);
     fetch(
       `/api/mobile/payslip?lineUserId=${encodeURIComponent(lineUserId)}&year=${year}&month=${month}`
     )
       .then(async (res) => {
         const json = await res.json();
-        if (!res.ok) throw new Error(json.error);
+        if (!res.ok) {
+          if (res.status === 400 && json.error?.includes("綁定")) {
+            setNeedsBind(true);
+            setData(null);
+            setError(null);
+            return;
+          }
+          throw new Error(json.error);
+        }
+        setNeedsBind(false);
         setData(json);
         setError(null);
       })
-      .catch((e) => setError(e instanceof Error ? e.message : "載入失敗"));
+      .catch((e) => setError(e instanceof Error ? e.message : "載入失敗"))
+      .finally(() => setLoading(false));
   }, [lineUserId, year, month]);
 
   function changeMonth(delta: number) {
@@ -83,6 +118,26 @@ export function PayslipTab({ lineUserId }: PayslipTabProps) {
         </div>
       )}
 
+      {needsBind ? (
+        <div className="rounded-2xl border border-amber-200 bg-white p-5 text-center shadow-sm">
+          <p className="text-sm font-medium text-amber-900">請先完成身份綁定</p>
+          <p className="mt-2 text-xs text-slate-500">
+            到「打卡首頁」選擇您的姓名並綁定，即可查看薪水報表。
+          </p>
+          {onGoBind && (
+            <button
+              type="button"
+              onClick={onGoBind}
+              className="mt-4 rounded-xl bg-blue-600 px-6 py-2.5 text-sm font-semibold text-white"
+            >
+              前往打卡首頁綁定
+            </button>
+          )}
+        </div>
+      ) : loading ? (
+        <div className="py-12 text-center text-sm text-slate-400">載入薪資中…</div>
+      ) : null}
+
       {data && (
         <div className="space-y-4">
           <section className="rounded-2xl bg-white p-4 shadow-sm">
@@ -104,10 +159,33 @@ export function PayslipTab({ lineUserId }: PayslipTabProps) {
             <p className="text-xs text-slate-500">
               加班 {data.hours.overtime} 小時（第 3–4 段 {data.hours.overtimeTier2} 小時）
             </p>
-            <Row label="加班費合計" value={data.components.overtimePay} bold />
+            <Row label="平日加班合計" value={data.components.overtimePay} bold />
             <p className="mt-2 text-[11px] text-slate-400">{data.overtimeDetail.tier1}</p>
             <p className="text-[11px] text-slate-400">{data.overtimeDetail.tier2}</p>
           </section>
+
+          {data.holidayAttendance && data.holidayAttendance.days > 0 && (
+            <section className="rounded-2xl border border-rose-100 bg-rose-50/50 p-4 shadow-sm">
+              <h2 className="text-sm font-semibold text-rose-900">國定假日出勤加發</h2>
+              <p className="mt-1 text-xs text-rose-700">
+                共 {data.holidayAttendance.days} 天 · 合計{" "}
+                {formatMoney(data.holidayAttendance.totalPay)}
+              </p>
+              <Row label="加倍薪資（142×8＝1136/天）" value={data.holidayAttendance.doublePayTotal} />
+              <Row
+                label="超過 8h 延長工時（190/237 元/h）"
+                value={data.holidayAttendance.overtimePayTotal}
+              />
+              <ul className="mt-3 space-y-2 border-t border-rose-100 pt-3">
+                {data.holidayAttendance.details.map((d) => (
+                  <li key={d.date} className="text-xs text-rose-800">
+                    <span className="font-medium">{d.date}</span>
+                    {d.holidayName ? ` ${d.holidayName}` : ""} · {d.summary}
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
 
           <section className="rounded-2xl bg-white p-4 shadow-sm">
             <h2 className="text-sm font-semibold text-slate-800">扣款</h2>

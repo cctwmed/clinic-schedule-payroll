@@ -4,6 +4,8 @@ import { calculateEmployeePayroll } from "@/lib/payroll/calculator";
 import { calculateOvertimePay } from "@/lib/payroll/overtime-pay";
 import { CLINIC_PAYROLL } from "@/lib/payroll/constants";
 import { parseScheduleMeta } from "@/lib/schedules/golden-config";
+import { resolveHolidayDates } from "@/lib/payroll/holiday-attendance-pay";
+import type { HolidayDayPayDetail } from "@/lib/payroll/holiday-attendance-pay";
 import { getDaysInMonth, formatWorkDate } from "@/types/schedule";
 
 const OFF_CODES = new Set(["STATUTORY", "REST", "ANNUAL_LEAVE", "CLOSED"]);
@@ -13,6 +15,7 @@ export interface MobileScheduleDay {
   dayOfMonth: number;
   shifts: { code: string; name: string; timeRange: string }[];
   isClosure: boolean;
+  isNationalHoliday: boolean;
 }
 
 export async function fetchMobileSchedule(
@@ -34,6 +37,12 @@ export async function fetchMobileSchedule(
 
   const meta = parseScheduleMeta(schedule?.note ?? null);
   const closureDates = new Set((meta.closures ?? []).map((c) => c.date));
+  const holidayDates = resolveHolidayDates(
+    start,
+    end,
+    meta.nationalHolidays ?? [],
+    [...closureDates]
+  );
 
   const { data: assignments } = await supabase
     .from("shift_assignments")
@@ -67,6 +76,7 @@ export async function fetchMobileSchedule(
       dayOfMonth: d,
       shifts: byDate.get(date) ?? [],
       isClosure: closureDates.has(date),
+      isNationalHoliday: holidayDates.has(date),
     });
   }
 
@@ -76,6 +86,7 @@ export async function fetchMobileSchedule(
     scheduleStatus: schedule?.status ?? "none",
     days,
     closureDates: [...closureDates],
+    holidayDates: [...holidayDates],
     laborMode: "四週變形工時",
     cycleHoursTarget: 160,
   };
@@ -99,6 +110,23 @@ export async function fetchMobilePayslip(
 
   if (!emp) throw new Error("找不到員工");
 
+  const { data: schedule } = await supabase
+    .from("schedules")
+    .select("note")
+    .eq("clinic_id", clinicId)
+    .eq("year", year)
+    .eq("month", month)
+    .maybeSingle();
+
+  const meta = parseScheduleMeta(schedule?.note ?? null);
+  const closureDates = (meta.closures ?? []).map((c) => c.date);
+  const holidayDates = resolveHolidayDates(
+    start,
+    end,
+    meta.nationalHolidays ?? [],
+    closureDates
+  );
+
   const complianceData = await loadComplianceData(clinicId, start, end);
 
   const line = calculateEmployeePayroll(
@@ -117,10 +145,17 @@ export async function fetchMobilePayslip(
     complianceData.shifts,
     complianceData.clocks,
     {},
-    { year, month, includeQuarterlyBonus: false, includeYearEndBonus: false }
+    {
+      year,
+      month,
+      includeQuarterlyBonus: false,
+      includeYearEndBonus: false,
+      holidayDates,
+    }
   );
 
   const otBreakdown = calculateOvertimePay(line.overtimeHours, "weekday");
+  const holidayDetails = (line.breakdown.holidayDayDetails ?? []) as HolidayDayPayDetail[];
 
   return {
     year,
@@ -132,13 +167,12 @@ export async function fetchMobilePayslip(
       fullAttendanceBonus: line.fullAttendanceBonus,
       fixedTotal: line.basePay,
       overtimePay: line.overtimePay,
+      holidayDoublePay: line.holidayDoublePay,
+      holidayOvertimePay: line.holidayOvertimePay,
+      holidayPayTotal: line.specialAttendancePay,
       laborInsurance: line.laborInsurance,
       healthInsurance: line.healthInsurance,
-      netPay:
-        line.basePay +
-        line.overtimePay -
-        line.laborInsurance -
-        line.healthInsurance,
+      netPay: line.netPay,
     },
     hours: {
       regular: line.regularHours,
@@ -150,7 +184,31 @@ export async function fetchMobilePayslip(
       tier1: `${CLINIC_PAYROLL.OT_HOURLY_RATE} × 1.34 × ${otBreakdown.tier1Hours}h = ${otBreakdown.tier1Pay}`,
       tier2: `${CLINIC_PAYROLL.OT_HOURLY_RATE} × 1.67 × ${otBreakdown.tier2Hours}h = ${otBreakdown.tier2Pay}`,
     },
-    note: "底薪 30,000 ＋ 職務加給 2,000 ＋ 全勤 2,000；加班費基準時薪 142 元",
+    holidayAttendance: {
+      days: line.specialAttendanceDays,
+      doublePayTotal: line.holidayDoublePay,
+      overtimePayTotal: line.holidayOvertimePay,
+      totalPay: line.specialAttendancePay,
+      doubleDaily: CLINIC_PAYROLL.HOLIDAY_DOUBLE_PAY,
+      tier1Hourly: CLINIC_PAYROLL.HOLIDAY_OT_TIER1_HOURLY,
+      tier2Hourly: CLINIC_PAYROLL.HOLIDAY_OT_TIER2_HOURLY,
+      details: holidayDetails.map((d) => ({
+        date: d.date,
+        holidayName: d.holidayName,
+        totalWorkHours: d.totalWorkHours,
+        scenario: d.scenario,
+        doublePay: d.doublePay,
+        overtimePay: d.overtimePay,
+        overtimeHoursTier1: d.overtimeHoursTier1,
+        overtimeHoursTier2: d.overtimeHoursTier2,
+        totalPay: d.totalPay,
+        summary:
+          d.scenario === "A"
+            ? `工時 ${d.totalWorkHours}h ≤ 8h → 加倍薪 ${d.doublePay} 元`
+            : `工時 ${d.totalWorkHours}h > 8h → 加倍 ${d.doublePay} + 延長工時 ${d.overtimePay} 元`,
+      })),
+    },
+    note: "底薪 30,000＋職務 2,000＋全勤 2,000；平日加班 142/h；國定假日出勤 1136/天（≤8h），超過依 190/237 元/h",
   };
 }
 

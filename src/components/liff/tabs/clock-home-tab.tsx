@@ -44,6 +44,7 @@ export function ClockHomeTab({ lineUserId, displayName, liffId }: ClockHomeTabPr
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [statusLoading, setStatusLoading] = useState(true);
   const [highlightAction, setHighlightAction] = useState<ClockType | null>(null);
   const [now, setNow] = useState(new Date());
 
@@ -58,11 +59,17 @@ export function ClockHomeTab({ lineUserId, displayName, liffId }: ClockHomeTabPr
   }, []);
 
   const loadStatus = useCallback(async () => {
-    const res = await fetch(`/api/clock?lineUserId=${encodeURIComponent(lineUserId)}`);
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error ?? "載入失敗");
-    setStatus(data);
-    if (data.binding) setSelectedEmployeeId(data.binding.employeeId);
+    setStatusLoading(true);
+    try {
+      const res = await fetch(`/api/clock?lineUserId=${encodeURIComponent(lineUserId)}`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "載入失敗");
+      setStatus(data);
+      if (data.binding) setSelectedEmployeeId(data.binding.employeeId);
+      setError(null);
+    } finally {
+      setStatusLoading(false);
+    }
   }, [lineUserId]);
 
   useEffect(() => {
@@ -221,7 +228,12 @@ export function ClockHomeTab({ lineUserId, displayName, liffId }: ClockHomeTabPr
         </div>
       )}
 
-      {!status?.binding ? (
+      {statusLoading && !status ? (
+        <div className="flex flex-col items-center gap-3 py-16">
+          <div className="h-8 w-8 animate-spin rounded-full border-2 border-blue-500 border-t-transparent" />
+          <p className="text-sm text-slate-500">載入打卡資料…</p>
+        </div>
+      ) : !status?.binding ? (
         <section className="rounded-2xl border border-amber-200 bg-white p-5 shadow-sm">
           <h2 className="text-sm font-semibold text-amber-900">首次使用：綁定身份</h2>
           <select

@@ -437,8 +437,8 @@ export function PayrollPageClient({
           <h3 className="mb-3 text-sm font-semibold text-slate-800">員工薪資明細</h3>
           <p className="mb-3 text-xs text-slate-500">
             底薪參考 {formatMoney(CLINIC_PAYROLL.MONTHLY_BASE_SALARY)}／月 · 加班基數{" "}
-            {CLINIC_PAYROLL.OT_HOURLY_RATE} 元/hr · 特殊出勤{" "}
-            {formatMoney(CLINIC_PAYROLL.SPECIAL_ATTENDANCE_DAILY)}/天
+            {CLINIC_PAYROLL.OT_HOURLY_RATE} 元/hr · 國定假日出勤：≤8h 加發{" "}
+            {formatMoney(CLINIC_PAYROLL.HOLIDAY_DOUBLE_PAY)}；超過 8h 另計 190/237 元/h
           </p>
           {lineItems.length === 0 ? (
             <div className="rounded-xl border border-dashed border-slate-300 bg-white px-6 py-12 text-center text-sm text-slate-500">
@@ -453,7 +453,9 @@ export function PayrollPageClient({
                       <th className="px-3 py-3">員工</th>
                       <th className="px-3 py-3">固定底薪</th>
                       <th className="px-3 py-3">時數薪</th>
-                      <th className="px-3 py-3">加班費</th>
+                      <th className="px-3 py-3">平日加班</th>
+                      <th className="px-3 py-3">國定加倍</th>
+                      <th className="px-3 py-3">國定延長</th>
                       <th className="px-3 py-3">彈性獎金</th>
                       {isQuarterlyMonth && <th className="px-3 py-3">季獎金</th>}
                       {isYearEndMonth && <th className="px-3 py-3">年終</th>}
@@ -475,6 +477,16 @@ export function PayrollPageClient({
                         </td>
                         <td className="px-3 py-3">{formatMoney(item.basePay)}</td>
                         <td className="px-3 py-3">{formatMoney(item.overtimePay)}</td>
+                        <td className="px-3 py-3 text-rose-700">
+                          {item.holidayDoublePay > 0
+                            ? `${formatMoney(item.holidayDoublePay)}（${item.specialAttendanceDays}天）`
+                            : "—"}
+                        </td>
+                        <td className="px-3 py-3 text-rose-600">
+                          {item.holidayOvertimePay > 0
+                            ? formatMoney(item.holidayOvertimePay)
+                            : "—"}
+                        </td>
                         <td className="px-3 py-3">
                           <input
                             type="number"

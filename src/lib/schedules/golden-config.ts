@@ -17,6 +17,8 @@ export interface ClosureRecord {
 export interface ScheduleMeta {
   golden?: GoldenScheduleConfig;
   closures?: ClosureRecord[];
+  /** 班表額外標記的國定假日（含颱風假等，合併行政院假日表） */
+  nationalHolidays?: string[];
 }
 
 export function parseScheduleMeta(note: string | null): ScheduleMeta {

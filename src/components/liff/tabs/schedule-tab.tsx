@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 
 interface ScheduleTabProps {
   lineUserId: string;
+  onGoBind?: () => void;
 }
 
 interface DayRow {
@@ -13,24 +14,37 @@ interface DayRow {
   isClosure: boolean;
 }
 
-export function ScheduleTab({ lineUserId }: ScheduleTabProps) {
+export function ScheduleTab({ lineUserId, onGoBind }: ScheduleTabProps) {
   const now = new Date();
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth() + 1);
   const [days, setDays] = useState<DayRow[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [needsBind, setNeedsBind] = useState(false);
 
   useEffect(() => {
+    setLoading(true);
     fetch(
       `/api/mobile/schedule?lineUserId=${encodeURIComponent(lineUserId)}&year=${year}&month=${month}`
     )
       .then(async (res) => {
         const data = await res.json();
-        if (!res.ok) throw new Error(data.error);
+        if (!res.ok) {
+          if (res.status === 400 && data.error?.includes("綁定")) {
+            setNeedsBind(true);
+            setDays([]);
+            setError(null);
+            return;
+          }
+          throw new Error(data.error);
+        }
+        setNeedsBind(false);
         setDays(data.days ?? []);
         setError(null);
       })
-      .catch((e) => setError(e instanceof Error ? e.message : "載入失敗"));
+      .catch((e) => setError(e instanceof Error ? e.message : "載入失敗"))
+      .finally(() => setLoading(false));
   }, [lineUserId, year, month]);
 
   function changeMonth(delta: number) {
@@ -73,6 +87,25 @@ export function ScheduleTab({ lineUserId }: ScheduleTabProps) {
         </div>
       )}
 
+      {needsBind ? (
+        <div className="rounded-2xl border border-amber-200 bg-white p-5 text-center shadow-sm">
+          <p className="text-sm font-medium text-amber-900">請先完成身份綁定</p>
+          <p className="mt-2 text-xs text-slate-500">
+            到「打卡首頁」選擇您的姓名並綁定，即可查看班表。
+          </p>
+          {onGoBind && (
+            <button
+              type="button"
+              onClick={onGoBind}
+              className="mt-4 rounded-xl bg-blue-600 px-6 py-2.5 text-sm font-semibold text-white"
+            >
+              前往打卡首頁綁定
+            </button>
+          )}
+        </div>
+      ) : loading ? (
+        <div className="py-12 text-center text-sm text-slate-400">載入班表中…</div>
+      ) : (
       <ul className="space-y-2">
         {days.map((d) => {
           const dow = new Date(`${d.date}T12:00:00+08:00`).getDay();
@@ -117,6 +150,7 @@ export function ScheduleTab({ lineUserId }: ScheduleTabProps) {
           );
         })}
       </ul>
+      )}
     </div>
   );
 }

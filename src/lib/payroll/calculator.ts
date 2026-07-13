@@ -1,12 +1,14 @@
-import { summarizeEmployeeHours } from "@/lib/compliance/check-compliance";
-import type { ClockEvent, WorkShiftBlock } from "@/lib/compliance/types";
-import { GOLDEN_SCHEDULE } from "@/lib/shift-templates";
 import {
-  CLINIC_PAYROLL,
-  sumNonRecurringBonus,
-} from "@/lib/payroll/constants";
+  summarizeHoursExcludingHolidayWorkDays,
+  calculateHolidayAttendancePay,
+  resolveHolidayDates,
+  type HolidayDayPayDetail,
+} from "@/lib/payroll/holiday-attendance-pay";
+import { CLINIC_PAYROLL, sumNonRecurringBonus } from "@/lib/payroll/constants";
 import { calculateMonthlyOvertimePay } from "@/lib/payroll/overtime-pay";
 import { calculateYearEndBonus } from "@/lib/payroll/year-end-bonus";
+import { GOLDEN_SCHEDULE } from "@/lib/shift-templates";
+import type { ClockEvent, WorkShiftBlock } from "@/lib/compliance/types";
 
 export interface EmployeePayrollInput {
   id: string;
@@ -37,15 +39,10 @@ export interface PayrollLineItem {
   regularHours: number;
   overtimeHours: number;
   overtimeHours2Tier: number;
-  /** 時數折算本薪（舊欄位，保留相容） */
   basePay: number;
-  /** 底薪 */
   baseSalary: number;
-  /** 職務加給 */
   jobAllowance: number;
-  /** 全勤獎金 */
   fullAttendanceBonus: number;
-  /** 診所固定月薪合計參考值 */
   monthlyBaseSalary: number;
   overtimePay: number;
   flexibleBonus: number;
@@ -57,15 +54,22 @@ export interface PayrollLineItem {
   annualLeavePayout: number;
   annualLeavePayoutDays: number;
   annualLeaveRecordId: string | null;
+  /** 國定假日出勤天數 */
+  specialAttendanceDays: number;
+  /** 國定假日出勤加發合計 */
+  specialAttendancePay: number;
+  /** 國定假日加倍薪資（1136/天） */
+  holidayDoublePay: number;
+  /** 國定假日超過 8h 延長工時加班費 */
+  holidayOvertimePay: number;
   nonRecurringTotal: number;
   laborInsurance: number;
   healthInsurance: number;
   deductionTotal: number;
-  /** 經常性薪資（本薪+加班） */
   recurringGross: number;
   grossPay: number;
   netPay: number;
-  breakdown: Record<string, number | string | boolean>;
+  breakdown: Record<string, number | string | boolean | HolidayDayPayDetail[]>;
 }
 
 export interface PayrollCalcContext {
@@ -73,6 +77,8 @@ export interface PayrollCalcContext {
   month: number;
   includeQuarterlyBonus: boolean;
   includeYearEndBonus: boolean;
+  /** 國定假日日期（班表標記 + 行政院假日 − 休診） */
+  holidayDates?: Set<string>;
 }
 
 function round(n: number): number {
@@ -101,6 +107,7 @@ export function recalcPayrollTotals(item: PayrollLineItem): PayrollLineItem {
     quarterlyBonus: item.quarterlyBonus,
     yearEndBonus: item.yearEndBonus,
     annualLeavePayout: item.annualLeavePayout,
+    specialAttendancePay: item.specialAttendancePay,
   });
   const recurringGross = item.basePay + item.overtimePay;
   const grossPay = recurringGross + nonRecurringTotal;
@@ -117,11 +124,8 @@ export function recalcPayrollTotals(item: PayrollLineItem): PayrollLineItem {
       flexibleBonus: item.flexibleBonus,
       quarterlyBonus: item.quarterlyBonus,
       yearEndBonus: item.yearEndBonus,
-      yearEndBonusCalculated: item.yearEndBonusCalculated,
-      yearEndBonusOverridden: item.yearEndBonusOverridden,
-      yearEndServiceMonths: item.yearEndServiceMonths,
-      annualLeavePayout: item.annualLeavePayout,
-      annualLeavePayoutDays: item.annualLeavePayoutDays,
+      holidayDoublePay: item.holidayDoublePay,
+      holidayOvertimePay: item.holidayOvertimePay,
       nonRecurringTotal,
       recurringGross: round(recurringGross),
       insuranceBase: CLINIC_PAYROLL.INSURANCE_REPORT_BASE,
@@ -139,12 +143,26 @@ export function calculateEmployeePayroll(
   bonusInput: PayrollBonusInput = {},
   context?: PayrollCalcContext
 ): PayrollLineItem {
-  const { regularHours, overtimeHours } = summarizeEmployeeHours(
+  const holidayDates =
+    context?.holidayDates ??
+    resolveHolidayDates(periodStart, periodEnd, [], []);
+
+  const holidayPay = calculateHolidayAttendancePay(
     employee.id,
     periodStart,
     periodEnd,
     shifts,
-    clocks
+    clocks,
+    { holidayDates }
+  );
+
+  const { regularHours, overtimeHours } = summarizeHoursExcludingHolidayWorkDays(
+    employee.id,
+    periodStart,
+    periodEnd,
+    shifts,
+    clocks,
+    holidayPay.excludeFromRegularOtDates
   );
 
   const otTier1 = Math.min(overtimeHours, 2);
@@ -212,6 +230,10 @@ export function calculateEmployeePayroll(
     annualLeavePayout,
     annualLeavePayoutDays,
     annualLeaveRecordId,
+    specialAttendanceDays: holidayPay.days,
+    specialAttendancePay: holidayPay.totalPay,
+    holidayDoublePay: holidayPay.doublePayTotal,
+    holidayOvertimePay: holidayPay.overtimePayTotal,
     nonRecurringTotal: 0,
     laborInsurance,
     healthInsurance,
@@ -222,12 +244,15 @@ export function calculateEmployeePayroll(
     breakdown: {
       hourlyWage: employee.hourlyWage,
       otHourlyRate: CLINIC_PAYROLL.OT_HOURLY_RATE,
-      baseSalary,
-      jobAllowance,
-      fullAttendanceBonus,
-      monthlyBaseSalary: CLINIC_PAYROLL.TOTAL_FIXED_SALARY,
-      insuranceReportBase: CLINIC_PAYROLL.INSURANCE_REPORT_BASE,
-      specialAttendanceDaily: CLINIC_PAYROLL.SPECIAL_ATTENDANCE_DAILY,
+      holidayDoubleDaily: CLINIC_PAYROLL.HOLIDAY_DOUBLE_PAY,
+      holidayOtTier1Hourly: CLINIC_PAYROLL.HOLIDAY_OT_TIER1_HOURLY,
+      holidayOtTier2Hourly: CLINIC_PAYROLL.HOLIDAY_OT_TIER2_HOURLY,
+      specialAttendanceDays: holidayPay.days,
+      specialAttendancePay: holidayPay.totalPay,
+      holidayDoublePay: holidayPay.doublePayTotal,
+      holidayOvertimePay: holidayPay.overtimePayTotal,
+      holidayDayDetails: holidayPay.dayDetails,
+      specialAttendanceDates: holidayPay.dates.join(", "),
       regularHours: round(regularHours),
       overtimeHours: round(otTier1 + otTier2),
       flexibleBonus,
@@ -239,7 +264,7 @@ export function calculateEmployeePayroll(
       yearEndFormula,
       annualLeavePayout,
       annualLeavePayoutDays,
-      salaryCategory: "非經常性薪資不計勞健保基數",
+      salaryCategory: "國定假日出勤為非經常性薪資，不計勞健保基數",
       otRate1: CLINIC_PAYROLL.OT_RATE_WEEKDAY_1,
       otRate2: CLINIC_PAYROLL.OT_RATE_WEEKDAY_2,
       laborMode: "四週變形工時（黃金班表）",

@@ -15,8 +15,14 @@ export const CLINIC_PAYROLL = {
   INSURANCE_REPORT_BASE: 34_000,
   /** 平日加班／特種出勤時薪基數（34000÷30÷8 四捨五入） */
   OT_HOURLY_RATE: 142,
-  /** 國定假日／颱風天特殊出勤津貼（元／天） */
-  SPECIAL_ATTENDANCE_DAILY: 1_133,
+  /** 國定假日出勤：法定加倍工資（142×8） */
+  HOLIDAY_DOUBLE_PAY: 1_136,
+  /** 國定假日第 9–10 小時時薪（142×1.34 四捨五入） */
+  HOLIDAY_OT_TIER1_HOURLY: 190,
+  /** 國定假日第 11–12 小時時薪（142×1.67 四捨五入） */
+  HOLIDAY_OT_TIER2_HOURLY: 237,
+  /** @deprecated 使用 HOLIDAY_DOUBLE_PAY */
+  SPECIAL_ATTENDANCE_DAILY: 1_136,
   /** 年終獎金預設：1 個月全薪 */
   YEAR_END_FULL_AMOUNT: 34_000,
   /** 年終比例分母（滿 12 個月） */
@@ -64,11 +70,13 @@ export function sumNonRecurringBonus(item: {
   quarterlyBonus: number;
   yearEndBonus: number;
   annualLeavePayout?: number;
+  specialAttendancePay?: number;
 }): number {
   return (
     item.flexibleBonus +
     item.quarterlyBonus +
     item.yearEndBonus +
-    (item.annualLeavePayout ?? 0)
+    (item.annualLeavePayout ?? 0) +
+    (item.specialAttendancePay ?? 0)
   );
 }

@@ -18,7 +18,7 @@ import {
   OFF_DAY_CATEGORIES,
 } from "@/types/schedule";
 import { checkCompliance } from "@/lib/compliance/check-compliance";
-import { compliancePeriod, loadComplianceData } from "@/lib/compliance/load-compliance-data";
+import { compliancePeriod, loadComplianceData, monthPeriod } from "@/lib/compliance/load-compliance-data";
 import type { ComplianceIssue } from "@/lib/compliance/types";
 import { buildGoldenShiftSlots, getShiftTemplate } from "@/lib/shift-templates";
 import {
@@ -29,33 +29,37 @@ import {
   type ClosureRecord,
 } from "@/lib/schedules/golden-config";
 import { generateGoldenMonthSchedule } from "@/lib/schedules/golden-rotation";
+import { validateSameDayAssignment } from "@/lib/schedules/assignment-validation";
+import { listTaiwanPublicHolidaysInRange } from "@/lib/holidays/taiwan-public-holidays";
 
 export async function fetchSchedulePageData(year: number, month: number) {
   const clinic = await getDefaultClinic();
   await ensureShiftTypes(clinic.id);
 
-  const { data: shiftTypes, error: shiftError } = await supabase
-    .from("shift_types")
-    .select("*")
-    .eq("clinic_id", clinic.id)
-    .eq("is_active", true)
-    .in("category", [...ASSIGNABLE_CATEGORIES, ...OFF_DAY_CATEGORIES])
-    .order("sort_order");
+  const { start: monthStart, end: monthEnd } = monthPeriod(year, month);
 
-  if (shiftError) throw new Error(shiftError.message);
+  const [shiftTypesResult, employeesResult, schedule] = await Promise.all([
+    supabase
+      .from("shift_types")
+      .select("*")
+      .eq("clinic_id", clinic.id)
+      .eq("is_active", true)
+      .in("category", [...ASSIGNABLE_CATEGORIES, ...OFF_DAY_CATEGORIES])
+      .order("sort_order"),
+    supabase
+      .from("employees")
+      .select("id, name, employee_no, job_title")
+      .eq("clinic_id", clinic.id)
+      .eq("status", "active")
+      .order("employee_no"),
+    getOrCreateSchedule(clinic.id, year, month),
+  ]);
 
-  const { data: employees, error: empError } = await supabase
-    .from("employees")
-    .select("id, name, employee_no, job_title")
-    .eq("clinic_id", clinic.id)
-    .eq("status", "active")
-    .order("employee_no");
+  if (shiftTypesResult.error) throw new Error(shiftTypesResult.error.message);
+  if (employeesResult.error) throw new Error(employeesResult.error.message);
 
-  if (empError) throw new Error(empError.message);
-
-  const schedule = await getOrCreateSchedule(clinic.id, year, month);
-  const goldenConfig = parseGoldenConfig(schedule.note);
-  const scheduleMeta = parseScheduleMeta(schedule.note);
+  const shiftTypes = shiftTypesResult.data;
+  const employees = employeesResult.data;
 
   const { data: assignments, error: assignError } = await supabase
     .from("shift_assignments")
@@ -65,6 +69,8 @@ export async function fetchSchedulePageData(year: number, month: number) {
   if (assignError) throw new Error(assignError.message);
 
   const assignmentMap = buildAssignmentMap(assignments ?? []);
+  const goldenConfig = parseGoldenConfig(schedule.note);
+  const scheduleMeta = parseScheduleMeta(schedule.note);
 
   const workShiftTypes = ((shiftTypes ?? []) as ShiftType[]).filter((s) =>
     ASSIGNABLE_CATEGORIES.includes(s.category)
@@ -93,6 +99,8 @@ export async function fetchSchedulePageData(year: number, month: number) {
     (i) => !i.date || (i.date >= compPeriod.monthStart && i.date <= compPeriod.monthEnd)
   );
 
+  const publicHolidays = listTaiwanPublicHolidaysInRange(monthStart, monthEnd);
+
   return {
     clinic,
     schedule,
@@ -104,6 +112,7 @@ export async function fetchSchedulePageData(year: number, month: number) {
     complianceIssues,
     goldenConfig,
     closures: scheduleMeta.closures ?? [],
+    publicHolidays,
   };
 }
 
@@ -142,6 +151,46 @@ function buildAssignmentMap(assignments: ShiftAssignment[]): DayAssignmentMap {
   return map;
 }
 
+async function validateAssignmentConflict(
+  scheduleId: string,
+  workDate: string,
+  shiftTypeId: string,
+  employeeId: string
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const { data: targetShift, error: targetError } = await supabase
+    .from("shift_types")
+    .select("code, category")
+    .eq("id", shiftTypeId)
+    .single();
+
+  if (targetError || !targetShift) {
+    return { ok: false, error: targetError?.message ?? "找不到班別" };
+  }
+
+  const { data: existingRows, error: existingError } = await supabase
+    .from("shift_assignments")
+    .select("shift_type_id, shift_types(code, category)")
+    .eq("schedule_id", scheduleId)
+    .eq("work_date", workDate)
+    .eq("employee_id", employeeId);
+
+  if (existingError) return { ok: false, error: existingError.message };
+
+  const existingCodes = (existingRows ?? [])
+    .filter((row) => row.shift_type_id !== shiftTypeId)
+    .map((row) => {
+      const st = row.shift_types as { code?: string } | { code?: string }[] | null;
+      const item = Array.isArray(st) ? st[0] : st;
+      return item?.code ?? "";
+    })
+    .filter(Boolean);
+
+  return validateSameDayAssignment(
+    { code: targetShift.code, category: targetShift.category },
+    existingCodes
+  );
+}
+
 export async function saveScheduleAssignment(
   scheduleId: string,
   workDate: string,
@@ -170,8 +219,17 @@ export async function saveScheduleAssignment(
       .eq("shift_type_id", shiftTypeId);
 
     if (error) return { success: false as const, error: error.message };
-    revalidatePath("/schedules");
     return { success: true as const };
+  }
+
+  const conflict = await validateAssignmentConflict(
+    scheduleId,
+    workDate,
+    shiftTypeId,
+    employeeId
+  );
+  if (!conflict.ok) {
+    return { success: false as const, error: conflict.error };
   }
 
   const { data: existing } = await supabase
@@ -206,6 +264,42 @@ export async function saveScheduleAssignment(
 
     if (error) return { success: false as const, error: error.message };
   }
+
+  return { success: true as const };
+}
+
+/** 半日診：清除該日所有晚診排班（保留早診） */
+export async function markHalfDaySchedule(scheduleId: string, workDate: string) {
+  const { data: schedule, error: scheduleError } = await supabase
+    .from("schedules")
+    .select("id, clinic_id, status, note")
+    .eq("id", scheduleId)
+    .single();
+
+  if (scheduleError) return { success: false as const, error: scheduleError.message };
+  if (schedule.status === "published") {
+    return { success: false as const, error: "已發布的班表無法直接修改" };
+  }
+
+  const { data: eveningType } = await supabase
+    .from("shift_types")
+    .select("id")
+    .eq("clinic_id", schedule.clinic_id)
+    .eq("code", "EVENING")
+    .maybeSingle();
+
+  if (!eveningType?.id) {
+    return { success: false as const, error: "找不到晚診班別" };
+  }
+
+  const { error } = await supabase
+    .from("shift_assignments")
+    .delete()
+    .eq("schedule_id", scheduleId)
+    .eq("work_date", workDate)
+    .eq("shift_type_id", eveningType.id);
+
+  if (error) return { success: false as const, error: error.message };
 
   revalidatePath("/schedules");
   return { success: true as const };

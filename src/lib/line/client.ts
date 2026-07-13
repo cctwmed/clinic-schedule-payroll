@@ -28,9 +28,12 @@ export function getLineConfig() {
   return { accessToken, channelSecret, liffId, appUrl };
 }
 
-export function getLiffClockUrl(action?: "clock_in" | "clock_out"): string {
+export function getLiffClockUrl(action?: "clock_in" | "clock_out", tab?: "clock" | "schedule" | "payslip"): string {
   const { liffId, appUrl } = getLineConfig();
-  const query = action ? `?action=${action}` : "";
+  const params = new URLSearchParams();
+  if (action) params.set("action", action);
+  if (tab && tab !== "clock") params.set("tab", tab);
+  const query = params.toString() ? `?${params.toString()}` : "";
   if (liffId) return `https://liff.line.me/${liffId}${query}`;
   return `${appUrl}/liff/clock${query}`;
 }

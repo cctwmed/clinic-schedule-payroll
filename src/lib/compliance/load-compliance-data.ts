@@ -15,8 +15,9 @@ export async function loadComplianceData(
   const { data: assignments, error: assignError } = await supabase
     .from("shift_assignments")
     .select(
-      "employee_id, work_date, expected_clock_in, expected_clock_out, note, shift_types(code, name, planned_hours)"
+      "employee_id, work_date, expected_clock_in, expected_clock_out, note, shift_types(code, name, planned_hours), schedules!inner(clinic_id)"
     )
+    .eq("schedules.clinic_id", clinicId)
     .gte("work_date", periodStart)
     .lte("work_date", periodEnd)
     .neq("status", "cancelled");
@@ -25,7 +26,8 @@ export async function loadComplianceData(
 
   const { data: clocks, error: clockError } = await supabase
     .from("clock_records")
-    .select("employee_id, clock_type, clocked_at")
+    .select("employee_id, clock_type, clocked_at, employees!inner(clinic_id)")
+    .eq("employees.clinic_id", clinicId)
     .gte("clock_date", periodStart)
     .lte("clock_date", periodEnd);
 

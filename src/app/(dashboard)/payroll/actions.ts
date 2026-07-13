@@ -10,7 +10,8 @@ import {
   monthPeriod,
 } from "@/lib/compliance/load-compliance-data";
 import type { ComplianceIssue } from "@/lib/compliance/types";
-import { parseGoldenConfig } from "@/lib/schedules/golden-config";
+import { parseGoldenConfig, parseScheduleMeta } from "@/lib/schedules/golden-config";
+import { resolveHolidayDates } from "@/lib/payroll/holiday-attendance-pay";
 import {
   isQuarterlyBonusMonth,
   isYearEndBonusMonth,
@@ -59,6 +60,14 @@ export async function fetchPayrollPageData(year: number, month: number) {
     .maybeSingle();
 
   const goldenConfig = parseGoldenConfig(schedule?.note ?? null);
+  const scheduleMeta = parseScheduleMeta(schedule?.note ?? null);
+  const closureDates = (scheduleMeta.closures ?? []).map((c) => c.date);
+  const holidayDates = resolveHolidayDates(
+    start,
+    end,
+    scheduleMeta.nationalHolidays ?? [],
+    closureDates
+  );
 
   const complianceData = await loadComplianceData(clinic.id, compPeriod.start, compPeriod.end);
   const complianceIssues = checkCompliance({
@@ -135,6 +144,7 @@ export async function fetchPayrollPageData(year: number, month: number) {
         month,
         includeQuarterlyBonus: includeQuarterly,
         includeYearEndBonus: includeYearEnd,
+        holidayDates,
       }
     );
   });

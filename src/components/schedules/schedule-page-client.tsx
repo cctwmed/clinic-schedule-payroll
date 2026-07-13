@@ -8,9 +8,11 @@ import {
   applyClinicGoldenTemplate,
   generateGoldenSchedule,
   markClinicClosureDay,
+  markHalfDaySchedule,
   publishSchedule,
   saveScheduleAssignment,
 } from "@/app/(dashboard)/schedules/actions";
+import type { PublicHoliday } from "@/lib/holidays/taiwan-public-holidays";
 import type { ComplianceIssue } from "@/lib/compliance/types";
 import type { Clinic } from "@/lib/clinic";
 import { GOLDEN_SCHEDULE } from "@/lib/shift-templates";
@@ -43,6 +45,7 @@ interface SchedulePageClientProps {
   complianceIssues: ComplianceIssue[];
   goldenConfig: GoldenScheduleConfig | null;
   closures: ClosureRecord[];
+  publicHolidays: PublicHoliday[];
 }
 
 export function SchedulePageClient({
@@ -58,11 +61,13 @@ export function SchedulePageClient({
   complianceIssues,
   goldenConfig,
   closures: initialClosures,
+  publicHolidays,
 }: SchedulePageClientProps) {
   const router = useRouter();
   const [year] = useState(initialYear);
   const [month] = useState(initialMonth);
   const [assignmentMap, setAssignmentMap] = useState(initialMap);
+  const [closures, setClosures] = useState(initialClosures);
   const [message, setMessage] = useState<string | null>(null);
   const [employeeAId, setEmployeeAId] = useState(goldenConfig?.employeeAId ?? "");
   const [employeeBId, setEmployeeBId] = useState(goldenConfig?.employeeBId ?? "");
@@ -76,8 +81,18 @@ export function SchedulePageClient({
   const [isPending, startTransition] = useTransition();
 
   const closureDateSet = useMemo(
-    () => new Set(initialClosures.map((c) => c.date)),
-    [initialClosures]
+    () => new Set(closures.map((c) => c.date)),
+    [closures]
+  );
+
+  const holidayMap = useMemo(
+    () => new Map(publicHolidays.map((h) => [h.date, h.name])),
+    [publicHolidays]
+  );
+
+  const eveningShiftId = useMemo(
+    () => shiftTypes.find((s) => s.code === "EVENING")?.id ?? null,
+    [shiftTypes]
   );
 
   const isPublished = schedule.status === "published";
@@ -104,11 +119,14 @@ export function SchedulePageClient({
   function handleAssign(workDate: string, shift: ShiftType, employeeId: string) {
     if (isPublished) return;
 
+    const prevValue = assignmentMap[workDate]?.[shift.id] ?? "";
     const value = employeeId || null;
+
     setAssignmentMap((prev) => ({
       ...prev,
       [workDate]: { ...prev[workDate], [shift.id]: value },
     }));
+    setMessage(null);
 
     startTransition(async () => {
       const result = await saveScheduleAssignment(
@@ -119,8 +137,73 @@ export function SchedulePageClient({
         shift.default_clock_in ?? "00:00",
         shift.default_clock_out ?? "00:00"
       );
-      setMessage(result.success ? null : result.error);
-      if (result.success) router.refresh();
+      if (!result.success) {
+        setAssignmentMap((prev) => ({
+          ...prev,
+          [workDate]: { ...prev[workDate], [shift.id]: prevValue || null },
+        }));
+        setMessage(result.error ?? "儲存失敗");
+      }
+    });
+  }
+
+  function handleRowClosure(workDate: string) {
+    if (isPublished) {
+      setMessage("已發布班表請用下方休診區塊設定臨時休診");
+      return;
+    }
+    const modeLabel = "預告休診（公佈前）";
+    if (!confirm(`確定將 ${workDate} 標記為全天休診？\n${modeLabel}`)) return;
+
+    startTransition(async () => {
+      const result = await markClinicClosureDay(
+        schedule.id,
+        workDate,
+        "planned",
+        GOLDEN_SCHEDULE.DUAL_DAY_HOURS
+      );
+      if (!result.success) {
+        setMessage(result.error);
+        return;
+      }
+      setClosures((prev) => [
+        ...prev.filter((c) => c.date !== workDate),
+        { date: workDate, mode: "planned", creditHours: GOLDEN_SCHEDULE.DUAL_DAY_HOURS },
+      ]);
+      setMessage(`已標記 ${workDate} 為休診日`);
+      router.refresh();
+    });
+  }
+
+  function handleRowHalfDay(workDate: string) {
+    if (isPublished) {
+      setMessage("已發布班表無法直接修改，請複製為新月份草稿");
+      return;
+    }
+    if (!eveningShiftId) {
+      setMessage("找不到晚診班別");
+      return;
+    }
+    if (!confirm(`確定 ${workDate} 改為只看早診？\n將清除該日所有晚診排班。`)) return;
+
+    const prevEvening = assignmentMap[workDate]?.[eveningShiftId] ?? null;
+
+    setAssignmentMap((prev) => ({
+      ...prev,
+      [workDate]: { ...prev[workDate], [eveningShiftId]: null },
+    }));
+
+    startTransition(async () => {
+      const result = await markHalfDaySchedule(schedule.id, workDate);
+      if (!result.success) {
+        setAssignmentMap((prev) => ({
+          ...prev,
+          [workDate]: { ...prev[workDate], [eveningShiftId]: prevEvening },
+        }));
+        setMessage(result.error);
+        return;
+      }
+      setMessage(`已將 ${workDate} 設為半日診（僅早診）`);
     });
   }
 
@@ -376,9 +459,9 @@ export function SchedulePageClient({
         <section className="rounded-xl border border-slate-300 bg-slate-50/80 p-4">
           <h3 className="text-sm font-semibold text-slate-800">休診日設定</h3>
           <p className="mt-1 text-xs leading-relaxed text-slate-600">
-            <strong>全天休診</strong>（春節、颱風全停、國定假日不開診）→ 用下方按鈕標記。
-            <strong>只看早診</strong>（半日）→ 不必按休診，直接在班表格子裡把「晚診」清空即可。
-            <strong>國定假日仍出勤</strong> → 維持排班＋打卡，薪資頁依特殊出勤 1,133 元/天結算。
+            <strong>全天休診</strong> → 點日期列旁的「休診」。
+            <strong>只看早診</strong> → 點「半日」清除晚診。
+            <strong>國定假日仍出勤</strong> → 維持排班＋打卡；薪資依 8h 分水嶺：≤8h 加發 1,136 元，超過另計 190/237 元/h。
           </p>
 
           <div className="mt-3 flex flex-wrap items-end gap-3">
@@ -422,9 +505,9 @@ export function SchedulePageClient({
             </button>
           </div>
 
-          {initialClosures.length > 0 && (
+          {closures.length > 0 && (
             <ul className="mt-3 space-y-1 text-xs text-slate-600">
-              {initialClosures.map((c) => (
+              {closures.map((c) => (
                 <li key={c.date}>
                   {c.date} · {c.mode === "planned" ? "預告休診→休息日" : "臨時休診"} · 折抵{" "}
                   {c.creditHours ?? GOLDEN_SCHEDULE.DUAL_DAY_HOURS}h
@@ -480,6 +563,7 @@ export function SchedulePageClient({
                       : "半日 3.67h";
 
                     const isClosureDay = closureDateSet.has(workDate);
+                    const holidayName = holidayMap.get(workDate);
 
                     return (
                       <tr
@@ -487,18 +571,56 @@ export function SchedulePageClient({
                         className={
                           isClosureDay
                             ? "bg-slate-200/70"
-                            : isWeekend
-                              ? "bg-slate-50/60"
-                              : "hover:bg-slate-50/40"
+                            : holidayName
+                              ? "bg-rose-50/50"
+                              : isWeekend
+                                ? "bg-slate-50/60"
+                                : "hover:bg-slate-50/40"
                         }
                       >
-                        <td className="sticky left-0 z-10 bg-inherit px-3 py-2 font-medium text-slate-800">
-                          {month}/{day}
-                          {isClosureDay && (
-                            <span className="ml-1 rounded bg-slate-600 px-1.5 py-0.5 text-[10px] text-white">
-                              休診
+                        <td className="sticky left-0 z-10 bg-inherit px-2 py-2 font-medium text-slate-800">
+                          <div className="flex flex-col gap-1">
+                            <span>
+                              {month}/{day}
+                              {isClosureDay && (
+                                <span className="ml-1 rounded bg-slate-600 px-1.5 py-0.5 text-[10px] text-white">
+                                  休診
+                                </span>
+                              )}
+                              {holidayName && !isClosureDay && (
+                                <span className="ml-1 rounded bg-rose-500 px-1.5 py-0.5 text-[10px] text-white">
+                                  國定
+                                </span>
+                              )}
                             </span>
-                          )}
+                            {holidayName && (
+                              <span className="text-[10px] font-normal text-rose-600">
+                                {holidayName}
+                              </span>
+                            )}
+                            {!isPublished && (
+                              <div className="flex gap-1">
+                                <button
+                                  type="button"
+                                  onClick={() => handleRowClosure(workDate)}
+                                  disabled={isPending}
+                                  className="rounded border border-slate-400 px-1.5 py-0.5 text-[10px] text-slate-600 hover:bg-slate-100 disabled:opacity-50"
+                                  title="全天休診"
+                                >
+                                  休診
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleRowHalfDay(workDate)}
+                                  disabled={isPending}
+                                  className="rounded border border-blue-400 px-1.5 py-0.5 text-[10px] text-blue-600 hover:bg-blue-50 disabled:opacity-50"
+                                  title="只看早診，清除晚診"
+                                >
+                                  半日
+                                </button>
+                              </div>
+                            )}
+                          </div>
                         </td>
                         <td className="px-3 py-2 text-slate-500">{weekdayLabel(workDate)}</td>
                         <td className="px-3 py-2 text-xs text-slate-400">{sessionLabel}</td>

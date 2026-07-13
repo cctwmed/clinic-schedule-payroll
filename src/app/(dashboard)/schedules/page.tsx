@@ -32,6 +32,7 @@ export default async function SchedulesPage({ searchParams }: PageProps) {
           complianceIssues={data.complianceIssues}
           goldenConfig={data.goldenConfig}
           closures={data.closures}
+          publicHolidays={data.publicHolidays}
         />
       </>
     );

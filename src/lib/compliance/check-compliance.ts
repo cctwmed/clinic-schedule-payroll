@@ -403,6 +403,38 @@ export interface CheckComplianceInput {
   oddWeekTrackForA?: 1 | 2;
 }
 
+function checkOffDayWorkConflicts(
+  employeeId: string,
+  employeeName: string,
+  shifts: WorkShiftBlock[],
+  dayOffs: DayOffRecord[]
+): ComplianceIssue[] {
+  const offDates = new Set(
+    dayOffs.filter((d) => d.employeeId === employeeId).map((d) => d.date)
+  );
+  const issues: ComplianceIssue[] = [];
+  const seen = new Set<string>();
+
+  for (const s of shifts) {
+    if (s.employeeId !== employeeId) continue;
+    if (["STATUTORY", "REST", "ANNUAL_LEAVE", "CLOSED"].includes(s.shiftCode)) continue;
+    if (!offDates.has(s.date)) continue;
+    const key = `${s.date}-${s.shiftCode}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    issues.push({
+      ruleCode: "OFF_DAY_WORK_CONFLICT",
+      employeeId,
+      employeeName,
+      date: s.date,
+      severity: "violation",
+      message: `${employeeName} 於 ${s.date} 同時排了例假/休息日與 ${s.shiftName ?? s.shiftCode}，請修正其中一項`,
+    });
+  }
+
+  return issues;
+}
+
 export function checkCompliance(input: CheckComplianceInput): ComplianceIssue[] {
   const {
     periodStart,
@@ -437,7 +469,8 @@ export function checkCompliance(input: CheckComplianceInput): ComplianceIssue[] 
       ),
       ...checkDailyOvertime(emp.id, emp.name, shifts, clocks),
       ...checkRestBetweenShifts(emp.id, emp.name, shifts),
-      ...checkBreakReminders(emp.id, emp.name, clocks)
+      ...checkBreakReminders(emp.id, emp.name, clocks),
+      ...checkOffDayWorkConflicts(emp.id, emp.name, shifts, dayOffs)
     );
   }
 
