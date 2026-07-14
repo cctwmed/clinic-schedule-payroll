@@ -1,3 +1,5 @@
+import { DEFAULT_GEO_RADIUS_M } from "@/lib/geo/constants";
+
 const LINE_API = "https://api.line.me/v2/bot";
 
 export interface LineTextMessage {
@@ -90,6 +92,38 @@ export async function replyLineMessage(
   return { ok: true };
 }
 
+export function buildWelcomeTextMessage(
+  liffUrl?: string,
+  employeeName?: string,
+  preferredAction?: "clock_in" | "clock_out"
+): LineTextMessage {
+  const url = liffUrl ?? getLiffClockUrl();
+  const clockInUrl = getLiffClockUrl("clock_in");
+  const clockOutUrl = getLiffClockUrl("clock_out");
+  const greet = employeeName ? `${employeeName} 您好！\n\n` : "";
+  const actionHint =
+    preferredAction === "clock_out"
+      ? "🔴 您可能需要下班打卡，請點下方連結。\n"
+      : preferredAction === "clock_in"
+        ? "🟢 您可能需要上班打卡，請點下方連結。\n"
+        : "";
+
+  return {
+    type: "text",
+    text: [
+      `${greet}📍 晴川診所人事打卡`,
+      "",
+      actionHint,
+      "請點連結開啟打卡頁（需在診所 ${DEFAULT_GEO_RADIUS_M} 公尺內 GPS 定位）：",
+      `▶ 完整打卡頁：${url}`,
+      `▶ 上班打卡：${clockInUrl}`,
+      `▶ 下班打卡：${clockOutUrl}`,
+      "",
+      "也可輸入：今日打卡 / 上班 / 下班 / 我的班表",
+    ].join("\n"),
+  };
+}
+
 /** 帶 LIFF 打卡按鈕的 Flex 訊息（上班／下班分開） */
 export function buildClockInFlexMessage(
   liffUrl: string,
@@ -104,7 +138,7 @@ export function buildClockInFlexMessage(
       ? "系統偵測您可能需要下班打卡，請點選下方按鈕。"
       : preferredAction === "clock_in"
         ? "系統偵測您可能需要上班打卡，請點選下方按鈕。"
-        : "請選擇上班或下班，需在診所 200 公尺內完成 GPS 定位。";
+        : `請選擇上班或下班，需在診所 ${DEFAULT_GEO_RADIUS_M} 公尺內完成 GPS 定位。`;
 
   return {
     type: "flex",

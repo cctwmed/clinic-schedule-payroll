@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
 import { getDefaultClinic, taipeiToday } from "@/lib/clinic";
+import { DEFAULT_GEO_RADIUS_M } from "@/lib/geo/constants";
 import { getDistanceMeters, isWithinRadius } from "@/lib/geo/haversine";
 import {
   buildShiftClockStatuses,
@@ -21,7 +22,7 @@ import {
   type WorkAssignment,
 } from "@/lib/clock/session";
 
-/** 打卡有效半徑以資料庫 clinics.geo_radius_m 為準（預設 200 公尺） */
+/** 打卡有效半徑以資料庫 clinics.geo_radius_m 為準 */
 
 function parseShiftJoin(raw: unknown): { code: string; name: string } | null {
   if (!raw) return null;
@@ -103,7 +104,7 @@ export async function POST(request: NextRequest) {
       clinic.latitude,
       clinic.longitude
     );
-    const radius = clinic.geo_radius_m ?? 200;
+    const radius = clinic.geo_radius_m ?? DEFAULT_GEO_RADIUS_M;
 
     if (!isWithinRadius(latitude, longitude, clinic.latitude, clinic.longitude, radius)) {
       return NextResponse.json(
@@ -320,7 +321,7 @@ export async function GET(request: NextRequest) {
       name: clinic.name,
       latitude: clinic.latitude,
       longitude: clinic.longitude,
-      radiusM: clinic.geo_radius_m ?? 200,
+      radiusM: clinic.geo_radius_m ?? DEFAULT_GEO_RADIUS_M,
     },
     binding: binding
       ? {

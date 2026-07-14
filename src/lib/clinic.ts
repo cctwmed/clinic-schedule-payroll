@@ -1,4 +1,5 @@
 import { supabase } from "@/lib/supabase";
+import { DEFAULT_GEO_RADIUS_M } from "@/lib/geo/constants";
 import { buildGoldenShiftSlots } from "@/lib/shift-templates";
 
 export interface Clinic {
@@ -30,7 +31,7 @@ export async function getDefaultClinic(): Promise<Clinic> {
       ...data,
       latitude: data.latitude != null ? Number(data.latitude) : null,
       longitude: data.longitude != null ? Number(data.longitude) : null,
-      geo_radius_m: data.geo_radius_m ?? 200,
+      geo_radius_m: data.geo_radius_m ?? DEFAULT_GEO_RADIUS_M,
     };
   }
 
@@ -40,7 +41,7 @@ export async function getDefaultClinic(): Promise<Clinic> {
       name: "我的診所",
       latitude: 24.67873,
       longitude: 121.76421,
-      geo_radius_m: 200,
+      geo_radius_m: DEFAULT_GEO_RADIUS_M,
     })
     .select("id, name, address, latitude, longitude, geo_radius_m")
     .single();
@@ -51,7 +52,7 @@ export async function getDefaultClinic(): Promise<Clinic> {
     ...created,
     latitude: created.latitude != null ? Number(created.latitude) : null,
     longitude: created.longitude != null ? Number(created.longitude) : null,
-    geo_radius_m: created.geo_radius_m ?? 200,
+    geo_radius_m: created.geo_radius_m ?? DEFAULT_GEO_RADIUS_M,
   };
 }
 

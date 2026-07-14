@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { verifyLineSignature } from "@/lib/line/signature";
 import {
   buildClockInFlexMessage,
-  buildClockQuickReply,
+  buildWelcomeTextMessage,
   getLineConfig,
   getLiffClockUrl,
   replyLineMessage,
@@ -60,26 +60,15 @@ export async function POST(request: NextRequest) {
       if (isClockKeyword(text)) {
         const employeeName = userId ? await getBoundEmployeeName(userId) : undefined;
         const preferredAction = resolveClockKeyword(text);
-        await replyLineMessage(event.replyToken, [
-          buildClockInFlexMessage(liffUrl, employeeName, preferredAction),
-        ]);
+        await replyWithClockGuide(event.replyToken, liffUrl, employeeName, preferredAction);
       } else if (text === "我的班表") {
         await handleScheduleQuery(event.replyToken, userId);
       } else if (text === "選單" || text === "help" || text === "說明") {
+        await replyWithClockGuide(event.replyToken, liffUrl);
+      } else if (text.length > 0) {
+        // 任意文字皆回覆指引，避免聊天室看起來「完全沒反應」
         await replyLineMessage(event.replyToken, [
-          buildClockQuickReply(liffUrl),
-          {
-            type: "text",
-            text: [
-              "可用指令：",
-              "・上班 / 上班打卡 — 開啟上班 GPS 打卡",
-              "・下班 / 下班打卡 — 開啟下班 GPS 打卡",
-              "・今日打卡 — 顯示上班／下班選項",
-              "・我的班表 — 查詢今日排班",
-              "",
-              `LIFF 打卡頁：${liffUrl}`,
-            ].join("\n"),
-          },
+          buildWelcomeTextMessage(liffUrl),
         ]);
       }
     }
@@ -96,25 +85,26 @@ export async function POST(request: NextRequest) {
     }
 
     if (event.type === "follow" && event.replyToken) {
-      await replyLineMessage(event.replyToken, [
-        {
-          type: "text",
-          text: [
-            "歡迎加入診所排班支薪系統！",
-            "",
-            "🟢 輸入「上班」→ GPS 上班打卡",
-            "🔴 輸入「下班」→ GPS 下班打卡",
-            "📅 輸入「我的班表」查詢今日排班",
-            "",
-            `或直接開啟：${liffUrl}`,
-          ].join("\n"),
-        },
-        buildClockQuickReply(liffUrl),
-      ]);
+      await replyLineMessage(event.replyToken, [buildWelcomeTextMessage(liffUrl)]);
     }
   }
 
   return NextResponse.json({ ok: true });
+}
+
+/** 先送純文字（必達）；Flex 按鈕需 Channel 已發布才穩定 */
+async function replyWithClockGuide(
+  replyToken: string,
+  liffUrl: string,
+  employeeName?: string,
+  preferredAction?: "clock_in" | "clock_out"
+) {
+  const result = await replyLineMessage(replyToken, [
+    buildWelcomeTextMessage(liffUrl, employeeName, preferredAction),
+  ]);
+  if (!result.ok) {
+    console.error("[LINE webhook] reply failed:", result.error);
+  }
 }
 
 async function getBoundEmployeeName(lineUserId: string): Promise<string | undefined> {

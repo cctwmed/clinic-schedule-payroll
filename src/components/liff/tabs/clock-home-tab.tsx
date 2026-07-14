@@ -275,7 +275,9 @@ export function ClockHomeTab({ lineUserId, displayName, liffId }: ClockHomeTabPr
             </div>
             {gps && distanceM != null && (
               <p className={`mt-2 text-sm font-medium ${withinRange ? "text-emerald-600" : "text-red-600"}`}>
-                {withinRange ? `✓ 距離 ${distanceM}m（可打卡）` : `✗ 距離 ${distanceM}m，超出範圍`}
+                {withinRange
+                  ? `✓ 距離 ${distanceM}m（${status.clinic.radiusM}m 內可打卡）`
+                  : `✗ 距離 ${distanceM}m，超出 ${status.clinic.radiusM}m 範圍`}
               </p>
             )}
             {gpsError && <p className="mt-1 text-xs text-red-600">{gpsError}</p>}

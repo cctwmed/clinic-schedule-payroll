@@ -56,7 +56,8 @@ export function MobileApp({ liffId }: MobileAppProps) {
 
         if (!window.liff.isLoggedIn()) {
           setPhase("login");
-          window.liff.login({ redirectUri: window.location.href });
+          const redirectUri = `${window.location.origin}/liff/clock`;
+          window.liff.login({ redirectUri });
           return;
         }
 
@@ -99,9 +100,11 @@ export function MobileApp({ liffId }: MobileAppProps) {
 
   useEffect(() => {
     if (!liffId || sdkReady) return;
+    const onSdkReady = () => setSdkReady(true);
+    window.addEventListener("liff-sdk-ready", onSdkReady);
     if (window.liff) {
       setSdkReady(true);
-      return;
+      return () => window.removeEventListener("liff-sdk-ready", onSdkReady);
     }
     const timer = setInterval(() => {
       if (window.liff) {
@@ -113,12 +116,15 @@ export function MobileApp({ liffId }: MobileAppProps) {
       clearInterval(timer);
       if (!window.liff) {
         setPhase("error");
-        setError("LIFF 載入逾時。請關閉視窗，從 LINE 官方帳號重新點連結開啟。");
+        setError(
+          "LIFF 載入逾時。請改在官方帳號聊天室輸入「今日打卡」，或點選回覆訊息中的連結。"
+        );
       }
     }, 12000);
     return () => {
       clearInterval(timer);
       clearTimeout(timeout);
+      window.removeEventListener("liff-sdk-ready", onSdkReady);
     };
   }, [liffId, sdkReady]);
 
@@ -131,8 +137,18 @@ export function MobileApp({ liffId }: MobileAppProps) {
               <p className="text-4xl">⚠️</p>
               <p className="text-sm font-medium text-red-600">{error}</p>
               <p className="text-xs text-slate-500">
-                請確認是從「晴川診所-人事打卡專區」官方帳號內開啟連結，不要用外部瀏覽器。
+                請在「晴川診所-人事打卡專區」聊天室輸入「今日打卡」取得連結。
               </p>
+              <a
+                href={
+                  liffId
+                    ? `https://liff.line.me/${liffId}`
+                    : "https://clinic-schedule-payroll.vercel.app/liff/clock"
+                }
+                className="mt-2 rounded-lg bg-blue-600 px-4 py-2 text-xs font-medium text-white"
+              >
+                直接開啟打卡頁
+              </a>
             </>
           ) : (
             <>
