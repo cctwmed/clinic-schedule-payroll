@@ -1,12 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { ClockSheet } from "@/components/liff/clock-sheet";
+import { FunctionGrid, type GridAction } from "@/components/liff/function-grid";
+import type { MobileTab } from "@/components/liff/bottom-nav";
+import { ModeTabs } from "@/components/liff/mode-tabs";
+import type { LiffMode } from "@/components/liff/mode-switcher";
+import { StatusCard } from "@/components/liff/status-card";
 import { getDistanceMeters } from "@/lib/geo/haversine";
-import {
-  buildActiveShiftHint,
-  ShiftSessionCards,
-} from "@/components/clock/shift-session-cards";
-import type { ShiftClockStatusDetail } from "@/lib/clock/shift-status";
 import type { WorkDutyStatus } from "@/lib/clock/work-status";
 
 type ClockType = "clock_in" | "clock_out";
@@ -21,8 +22,15 @@ interface ClockStatus {
   clinic: { name: string; latitude: number | null; longitude: number | null; radiusM: number };
   binding: { employeeId: string; employeeName: string } | null;
   employees: { id: string; name: string; employee_no: string }[];
-  shiftStatuses: ShiftClockStatusDetail[];
-  todayClocks: { id: string; clock_type: string; clocked_at: string; assignment_id?: string | null }[];
+  shiftStatuses: import("@/lib/clock/shift-status").ShiftClockStatusDetail[];
+  todayClocks: {
+    id: string;
+    clock_type: string;
+    clocked_at: string;
+    is_late?: boolean;
+    note?: string | null;
+    assignment_id?: string | null;
+  }[];
   workDutyStatus: WorkDutyStatus;
   workDutyStatusLabel: string;
   reminders: ClockReminder[];
@@ -33,9 +41,56 @@ interface ClockHomeTabProps {
   lineUserId: string;
   displayName: string;
   liffId?: string;
+  appUrl?: string;
+  isClinicAdmin: boolean;
+  mode: LiffMode;
+  onModeChange: (mode: LiffMode) => void;
+  onNavigate?: (tab: MobileTab) => void;
 }
 
-export function ClockHomeTab({ lineUserId, displayName, liffId }: ClockHomeTabProps) {
+function formatTaipeiDate(dateStr: string): string {
+  const d = new Date(`${dateStr}T12:00:00+08:00`);
+  return d.toLocaleDateString("zh-TW", {
+    timeZone: "Asia/Taipei",
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+    weekday: "short",
+  });
+}
+
+function formatClockTime(iso: string): string {
+  return new Date(iso).toLocaleTimeString("zh-TW", {
+    timeZone: "Asia/Taipei",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function deriveStatusNote(
+  clocks: ClockStatus["todayClocks"],
+  duty: WorkDutyStatus
+): string {
+  const clockIn = clocks.find((c) => c.clock_type === "clock_in");
+  if (!clockIn) return duty === "all_done" ? "已完成" : "—";
+
+  if (clockIn.note?.includes("提早") || clockIn.note?.includes("early")) {
+    return "提早到班";
+  }
+  if (clockIn.is_late) return "遲到";
+  return "正常";
+}
+
+export function ClockHomeTab({
+  lineUserId,
+  displayName,
+  liffId,
+  appUrl,
+  isClinicAdmin,
+  mode,
+  onModeChange,
+  onNavigate,
+}: ClockHomeTabProps) {
   const [status, setStatus] = useState<ClockStatus | null>(null);
   const [selectedEmployeeId, setSelectedEmployeeId] = useState("");
   const [gps, setGps] = useState<{ lat: number; lng: number; accuracy: number } | null>(null);
@@ -45,18 +100,8 @@ export function ClockHomeTab({ lineUserId, displayName, liffId }: ClockHomeTabPr
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [statusLoading, setStatusLoading] = useState(true);
-  const [highlightAction, setHighlightAction] = useState<ClockType | null>(null);
-  const [now, setNow] = useState(new Date());
-
-  useEffect(() => {
-    const action = new URLSearchParams(window.location.search).get("action");
-    if (action === "clock_in" || action === "clock_out") setHighlightAction(action);
-  }, []);
-
-  useEffect(() => {
-    const t = setInterval(() => setNow(new Date()), 1000);
-    return () => clearInterval(t);
-  }, []);
+  const [clockSheetOpen, setClockSheetOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   const loadStatus = useCallback(async () => {
     setStatusLoading(true);
@@ -86,14 +131,18 @@ export function ClockHomeTab({ lineUserId, displayName, liffId }: ClockHomeTabPr
     }
     navigator.geolocation.getCurrentPosition(
       (pos) => {
-        setGps({ lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: pos.coords.accuracy });
+        setGps({
+          lat: pos.coords.latitude,
+          lng: pos.coords.longitude,
+          accuracy: pos.coords.accuracy,
+        });
         setGpsLoading(false);
       },
       (err) => {
         setGpsError(err.message);
         setGpsLoading(false);
       },
-      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+      { enableHighAccuracy: false, timeout: 8000, maximumAge: 120_000 }
     );
   }, []);
 
@@ -101,19 +150,27 @@ export function ClockHomeTab({ lineUserId, displayName, liffId }: ClockHomeTabPr
     if (status?.binding) getLocation();
   }, [status?.binding, getLocation]);
 
+  useEffect(() => {
+    const action = new URLSearchParams(window.location.search).get("action");
+    if (action === "clock_in" || action === "clock_out") {
+      setClockSheetOpen(true);
+      getLocation();
+    }
+  }, [getLocation]);
+
   const distanceM = useMemo(() => {
     if (!gps || status?.clinic.latitude == null || status?.clinic.longitude == null) return null;
-    return Math.round(getDistanceMeters(gps.lat, gps.lng, status.clinic.latitude, status.clinic.longitude));
+    return Math.round(
+      getDistanceMeters(gps.lat, gps.lng, status.clinic.latitude, status.clinic.longitude)
+    );
   }, [gps, status?.clinic.latitude, status?.clinic.longitude]);
 
-  const withinRange = distanceM != null && status?.clinic.radiusM != null && distanceM <= status.clinic.radiusM;
+  const withinRange =
+    distanceM != null && status?.clinic.radiusM != null && distanceM <= status.clinic.radiusM;
   const clockReady = !!gps && withinRange && !loading;
   const duty = status?.workDutyStatus ?? "off_duty";
-
   const canClockIn = duty === "off_duty" && clockReady;
   const canClockOut = duty === "on_duty" && clockReady;
-
-  const activeHint = status?.shiftStatuses ? buildActiveShiftHint(status.shiftStatuses) : null;
 
   async function handleBind() {
     if (!selectedEmployeeId) return;
@@ -136,7 +193,6 @@ export function ClockHomeTab({ lineUserId, displayName, liffId }: ClockHomeTabPr
   }
 
   async function handleClock(clockType: ClockType) {
-    setHighlightAction(clockType);
     if (!gps) {
       setError("請先取得 GPS 定位");
       getLocation();
@@ -165,7 +221,6 @@ export function ClockHomeTab({ lineUserId, displayName, liffId }: ClockHomeTabPr
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "打卡失敗");
       setMessage(data.message);
-      setHighlightAction(null);
       await loadStatus();
     } catch (err) {
       setError(err instanceof Error ? err.message : "打卡失敗");
@@ -174,40 +229,49 @@ export function ClockHomeTab({ lineUserId, displayName, liffId }: ClockHomeTabPr
     }
   }
 
-  const taipeiTime = now.toLocaleTimeString("zh-TW", {
-    timeZone: "Asia/Taipei",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  });
+  function handleGridAction(action: GridAction) {
+    if (action.type === "tab") {
+      onNavigate?.(action.tab);
+      return;
+    }
+    if (action.type === "clock") {
+      getLocation();
+      setClockSheetOpen(true);
+      return;
+    }
+    if (action.type === "admin") {
+      window.open(action.href, "_blank", "noopener,noreferrer");
+      return;
+    }
+    if (action.type === "settings") {
+      setSettingsOpen(true);
+    }
+  }
 
-  const inBtnClass =
-    duty === "off_duty" && canClockIn
-      ? "bg-emerald-600 text-white shadow-emerald-200 ring-2 ring-emerald-300"
-      : "bg-slate-200 text-slate-400 cursor-not-allowed shadow-none";
+  const todayClocks = status?.todayClocks ?? [];
+  const lastClockIn = [...todayClocks].reverse().find((c) => c.clock_type === "clock_in");
+  const lastClockOut = [...todayClocks].reverse().find((c) => c.clock_type === "clock_out");
+  const hasClocked = todayClocks.length > 0;
 
-  const outBtnClass =
-    duty === "on_duty" && canClockOut
-      ? "bg-orange-500 text-white shadow-orange-200 ring-2 ring-orange-300"
-      : "bg-slate-200 text-slate-400 cursor-not-allowed shadow-none";
+  let headline = "尚未打卡";
+  if (lastClockOut) {
+    headline = `下班打卡 ${formatClockTime(lastClockOut.clocked_at)}`;
+  } else if (lastClockIn) {
+    headline = `上班打卡 ${formatClockTime(lastClockIn.clocked_at)}`;
+  }
+
+  const dateLabel = status?.today ? formatTaipeiDate(status.today) : "—";
+  const locationLabel = status?.clinic.name
+    ? `${status.clinic.name} (GPS 定位)`
+    : "晴川診所 (GPS 定位)";
+  const noteLabel = deriveStatusNote(todayClocks, duty);
 
   return (
-    <div className="px-4 pt-6">
-      <header className="mb-4 text-center">
-        <h1 className="text-xl font-bold text-slate-900">打卡首頁</h1>
-        <p className="text-sm text-slate-600">{status?.clinic.name ?? "診所"}</p>
-        <p className="mt-1 font-mono text-lg font-semibold text-blue-700">{taipeiTime}</p>
-        {status?.binding && (
-          <p className="mt-1 inline-block rounded-full bg-blue-100 px-3 py-0.5 text-xs font-medium text-blue-800">
-            狀態：{status.workDutyStatusLabel}
-          </p>
-        )}
-      </header>
-
+    <div className="space-y-5 px-4 pb-8 pt-5">
       {status?.reminders?.map((r, i) => (
         <div
           key={i}
-          className={`mb-3 rounded-xl border px-4 py-3 text-sm ${
+          className={`rounded-2xl border px-4 py-3 text-sm ${
             r.severity === "error"
               ? "border-red-200 bg-red-50 text-red-700"
               : "border-amber-200 bg-amber-50 text-amber-900"
@@ -218,28 +282,28 @@ export function ClockHomeTab({ lineUserId, displayName, liffId }: ClockHomeTabPr
       ))}
 
       {error && (
-        <div className="mb-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+        <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
           {error}
         </div>
       )}
       {message && (
-        <div className="mb-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+        <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
           {message}
         </div>
       )}
 
       {statusLoading && !status ? (
-        <div className="flex flex-col items-center gap-3 py-16">
-          <div className="h-8 w-8 animate-spin rounded-full border-2 border-blue-500 border-t-transparent" />
+        <div className="flex flex-col items-center gap-3 py-20">
+          <div className="h-8 w-8 animate-spin rounded-full border-2 border-emerald-500 border-t-transparent" />
           <p className="text-sm text-slate-500">載入打卡資料…</p>
         </div>
       ) : !status?.binding ? (
-        <section className="rounded-2xl border border-amber-200 bg-white p-5 shadow-sm">
+        <section className="rounded-2xl bg-white p-5 shadow-md">
           <h2 className="text-sm font-semibold text-amber-900">首次使用：綁定身份</h2>
           <select
             value={selectedEmployeeId}
             onChange={(e) => setSelectedEmployeeId(e.target.value)}
-            className="mt-3 w-full rounded-xl border px-3 py-3 text-sm"
+            className="mt-3 w-full rounded-xl border border-slate-200 px-3 py-3 text-sm"
           >
             <option value="">選擇姓名</option>
             {status?.employees.map((e) => (
@@ -251,73 +315,78 @@ export function ClockHomeTab({ lineUserId, displayName, liffId }: ClockHomeTabPr
           <button
             onClick={handleBind}
             disabled={!selectedEmployeeId || loading}
-            className="mt-3 w-full rounded-xl bg-amber-500 py-3 text-sm font-semibold text-white disabled:opacity-50"
+            className="mt-3 w-full rounded-xl bg-emerald-600 py-3 text-sm font-semibold text-white disabled:opacity-50"
           >
             確認綁定
           </button>
         </section>
       ) : (
         <>
-          <p className="mb-3 text-center text-sm text-slate-600">👤 {status.binding.employeeName}</p>
+          <StatusCard
+            hasClocked={hasClocked}
+            headline={headline}
+            dateLabel={dateLabel}
+            location={locationLabel}
+            note={noteLabel}
+            loading={statusLoading}
+            onOpenClock={() => {
+              getLocation();
+              setClockSheetOpen(true);
+            }}
+            onViewRecords={() => onNavigate?.("records")}
+            onLeave={() => onNavigate?.("leave")}
+          />
 
-          {status.shiftStatuses.length > 0 && <ShiftSessionCards shifts={status.shiftStatuses} />}
+          <ModeTabs mode={mode} isClinicAdmin={isClinicAdmin} onChange={onModeChange} />
 
-          <section className="mb-4 rounded-2xl bg-white p-4 shadow-sm">
-            <div className="flex items-center justify-between">
-              <span className="text-sm font-semibold">GPS</span>
-              <button
-                onClick={getLocation}
-                disabled={gpsLoading}
-                className="rounded-lg bg-slate-800 px-3 py-1 text-xs text-white"
-              >
-                {gpsLoading ? "定位中" : "重新定位"}
-              </button>
-            </div>
-            {gps && distanceM != null && (
-              <p className={`mt-2 text-sm font-medium ${withinRange ? "text-emerald-600" : "text-red-600"}`}>
-                {withinRange
-                  ? `✓ 距離 ${distanceM}m（${status.clinic.radiusM}m 內可打卡）`
-                  : `✗ 距離 ${distanceM}m，超出 ${status.clinic.radiusM}m 範圍`}
+          <FunctionGrid mode={mode} appUrl={appUrl} onAction={handleGridAction} />
+
+          {settingsOpen && (
+            <div className="rounded-2xl border border-slate-200 bg-white p-4 text-sm shadow-md">
+              <div className="flex items-center justify-between">
+                <p className="font-semibold text-slate-900">個人設定</p>
+                <button
+                  type="button"
+                  onClick={() => setSettingsOpen(false)}
+                  className="text-xs text-slate-500"
+                >
+                  關閉
+                </button>
+              </div>
+              <p className="mt-2 text-slate-600">👤 {status.binding.employeeName}</p>
+              <p className="mt-1 text-xs text-slate-500">LINE：{displayName}</p>
+              <p className="mt-3 text-xs text-slate-400">
+                如需變更綁定身份，請聯繫管理員。
               </p>
-            )}
-            {gpsError && <p className="mt-1 text-xs text-red-600">{gpsError}</p>}
-          </section>
-
-          {duty !== "all_done" && (
-            <p className="mb-2 text-center text-xs text-slate-500">
-              {activeHint ? `建議：${activeHint}` : duty === "on_duty" ? "請點選下班打卡" : "請點選上班打卡"}
-            </p>
-          )}
-
-          <div className="mb-4 grid grid-cols-2 gap-3">
-            <button
-              type="button"
-              onClick={() => handleClock("clock_in")}
-              disabled={!canClockIn}
-              className={`rounded-2xl py-5 text-base font-bold shadow-lg transition-all ${inBtnClass}`}
-            >
-              {loading && highlightAction === "clock_in" ? "處理中…" : "上班打卡"}
-            </button>
-            <button
-              type="button"
-              onClick={() => handleClock("clock_out")}
-              disabled={!canClockOut}
-              className={`rounded-2xl py-5 text-base font-bold shadow-lg transition-all ${outBtnClass}`}
-            >
-              {loading && highlightAction === "clock_out" ? "處理中…" : "下班打卡"}
-            </button>
-          </div>
-
-          {duty === "all_done" && (
-            <div className="mb-4 rounded-2xl border border-emerald-200 bg-emerald-50 py-4 text-center text-sm font-medium text-emerald-800">
-              今日所有班別打卡已完成 ✓
             </div>
           )}
         </>
       )}
 
+      {status?.binding && (
+        <ClockSheet
+          open={clockSheetOpen}
+          onClose={() => setClockSheetOpen(false)}
+          clinicName={status.clinic.name}
+          employeeName={status.binding.employeeName}
+          duty={duty}
+          shiftStatuses={status.shiftStatuses}
+          gpsLoading={gpsLoading}
+          gpsError={gpsError}
+          distanceM={distanceM}
+          radiusM={status.clinic.radiusM}
+          withinRange={!!withinRange}
+          loading={loading}
+          canClockIn={canClockIn}
+          canClockOut={canClockOut}
+          onRefreshGps={getLocation}
+          onClockIn={() => handleClock("clock_in")}
+          onClockOut={() => handleClock("clock_out")}
+        />
+      )}
+
       {!liffId && (
-        <p className="mt-4 text-center text-xs text-slate-400">開發模式：未設定 LIFF ID</p>
+        <p className="text-center text-xs text-slate-400">開發模式：未設定 LIFF ID</p>
       )}
     </div>
   );

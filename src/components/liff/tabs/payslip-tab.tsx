@@ -23,7 +23,18 @@ interface PayslipData {
     holidayPayTotal: number;
     laborInsurance: number;
     healthInsurance: number;
+    personalLeaveDeduction?: number;
+    sickLeaveDeduction?: number;
+    leaveDeductionTotal?: number;
+    grossPay: number;
     netPay: number;
+  };
+  leaveDeductions?: {
+    personalLeaveHours: number;
+    personalLeaveDeduction: number;
+    sickLeaveHours: number;
+    sickLeaveDeduction: number;
+    total: number;
   };
   hours: { regular: number; overtime: number; overtimeTier2: number };
   overtimeDetail: { hourlyRate: number; tier1: string; tier2: string };
@@ -142,8 +153,11 @@ export function PayslipTab({ lineUserId, onGoBind }: PayslipTabProps) {
         <div className="space-y-4">
           <section className="rounded-2xl bg-white p-4 shadow-sm">
             <p className="text-sm text-slate-500">{data.employeeName}</p>
+            <p className="mt-1 text-xs text-slate-400">
+              應領 {formatMoney(data.components.grossPay)}
+            </p>
             <p className="mt-2 text-2xl font-bold text-blue-700">{formatMoney(data.components.netPay)}</p>
-            <p className="text-xs text-slate-400">預估實發（含扣款）</p>
+            <p className="text-xs text-slate-400">實領（已扣勞健保與請假扣款）</p>
           </section>
 
           <section className="rounded-2xl bg-white p-4 shadow-sm">
@@ -189,6 +203,18 @@ export function PayslipTab({ lineUserId, onGoBind }: PayslipTabProps) {
 
           <section className="rounded-2xl bg-white p-4 shadow-sm">
             <h2 className="text-sm font-semibold text-slate-800">扣款</h2>
+            {(data.leaveDeductions?.personalLeaveDeduction ?? 0) > 0 && (
+              <Row
+                label={`事假扣款（${data.leaveDeductions?.personalLeaveHours ?? 0}h）`}
+                value={-(data.leaveDeductions?.personalLeaveDeduction ?? 0)}
+              />
+            )}
+            {(data.leaveDeductions?.sickLeaveDeduction ?? 0) > 0 && (
+              <Row
+                label={`病假扣款（${data.leaveDeductions?.sickLeaveHours ?? 0}h·半薪）`}
+                value={-(data.leaveDeductions?.sickLeaveDeduction ?? 0)}
+              />
+            )}
             <Row label="勞保自付" value={-data.components.laborInsurance} />
             <Row label="健保自付" value={-data.components.healthInsurance} />
           </section>

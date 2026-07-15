@@ -17,7 +17,10 @@ import {
   recalcPayrollTotals,
   type PayrollLineItem,
 } from "@/lib/payroll/calculator";
+import { summarizeMonthlyPayroll } from "@/lib/payroll/payroll-summary";
+import { EARLY_PUNCH_BUFFER_MINUTES } from "@/lib/clock/early-punch";
 import { calculateYearEndBonus } from "@/lib/payroll/year-end-bonus";
+import Link from "next/link";
 
 interface PayrollPageClientProps {
   year: number;
@@ -40,6 +43,7 @@ interface PayrollPageClientProps {
   quarterLabel: string | null;
   annualSummary: AnnualPayrollSummary | null;
   leavePayoutsDue: LeavePayoutDue[];
+  pendingEarlyPunchReview?: number;
 }
 
 export function PayrollPageClient({
@@ -56,6 +60,7 @@ export function PayrollPageClient({
   quarterLabel,
   annualSummary,
   leavePayoutsDue,
+  pendingEarlyPunchReview = 0,
 }: PayrollPageClientProps) {
   const router = useRouter();
   const [lineItems, setLineItems] = useState(initialLineItems);
@@ -69,8 +74,7 @@ export function PayrollPageClient({
     return init;
   });
 
-  const totalNet = lineItems.reduce((s, i) => s + i.netPay, 0);
-  const totalGross = lineItems.reduce((s, i) => s + i.grossPay, 0);
+  const summary = summarizeMonthlyPayroll(lineItems);
   const totalNonRecurring = lineItems.reduce((s, i) => s + i.nonRecurringTotal, 0);
   const totalLeavePayout = lineItems.reduce((s, i) => s + i.annualLeavePayout, 0);
   const hasLeavePayout = totalLeavePayout > 0 || leavePayoutsDue.length > 0;
@@ -95,6 +99,11 @@ export function PayrollPageClient({
         return recalcPayrollTotals({ ...item, ...patch });
       })
     );
+  }
+
+  function updateManualOvertime(employeeId: string, raw: number) {
+    const hours = Math.max(0, Math.round(raw * 100) / 100);
+    patchItem(employeeId, { manualOvertimeHours: hours });
   }
 
   function updateFlexibleBonus(employeeId: string, raw: number) {
@@ -182,11 +191,17 @@ export function PayrollPageClient({
       <div className="space-y-6 p-6">
         <SalaryStructureBanner />
 
-        <div className="grid gap-4 sm:grid-cols-4">
-          <StatCard label="員工人數" value={`${lineItems.length} 位`} />
-          <StatCard label="應發總額" value={formatMoney(totalGross)} />
+        <MonthlyFundsDashboard summary={summary} employeeCount={lineItems.length} />
+
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <StatCard label="應發薪資合計" value={formatMoney(summary.totalGross)} />
           <StatCard label="非經常性獎金" value={formatMoney(totalNonRecurring)} tone="violet" />
-          <StatCard label="實發總額" value={formatMoney(totalNet)} highlight />
+          <StatCard label="診所規費負擔" value={formatMoney(summary.totalClinicBurden)} tone="amber" />
+          <StatCard
+            label="本月預算總支出"
+            value={formatMoney(summary.totalBudgetOutlay)}
+            highlight
+          />
         </div>
 
         {existingRun && (
@@ -200,6 +215,24 @@ export function PayrollPageClient({
         {message && (
           <div className="rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800">
             {message}
+          </div>
+        )}
+
+        {pendingEarlyPunchReview > 0 && (
+          <div className="rounded-xl border border-orange-200 bg-orange-50 px-4 py-3 text-sm text-orange-900">
+            <p className="font-semibold">
+              有 {pendingEarlyPunchReview} 筆「異常提早打卡」待院長審核（超過{" "}
+              {EARLY_PUNCH_BUFFER_MINUTES} 分鐘緩衝）
+            </p>
+            <p className="mt-1 text-xs text-orange-800">
+              預設薪資工時對齊班表起算；若因公需計入提早時段，請至打卡紀錄核可提早工時。
+            </p>
+            <Link
+              href="/clock-records"
+              className="mt-2 inline-block text-sm font-medium text-orange-700 underline hover:text-orange-900"
+            >
+              前往打卡紀錄審核 →
+            </Link>
           </div>
         )}
 
@@ -434,11 +467,9 @@ export function PayrollPageClient({
         )}
 
         <section>
-          <h3 className="mb-3 text-sm font-semibold text-slate-800">員工薪資明細</h3>
+          <h3 className="mb-3 text-sm font-semibold text-slate-800">員工薪資單明細</h3>
           <p className="mb-3 text-xs text-slate-500">
-            底薪參考 {formatMoney(CLINIC_PAYROLL.MONTHLY_BASE_SALARY)}／月 · 加班基數{" "}
-            {CLINIC_PAYROLL.OT_HOURLY_RATE} 元/hr · 國定假日出勤：≤8h 加發{" "}
-            {formatMoney(CLINIC_PAYROLL.HOLIDAY_DOUBLE_PAY)}；超過 8h 另計 190/237 元/h
+            應領 = 固定薪 + 加班 + 津貼／獎金；實領 = 應領 − 勞健保 − 事假／病假扣款。
           </p>
           {lineItems.length === 0 ? (
             <div className="rounded-xl border border-dashed border-slate-300 bg-white px-6 py-12 text-center text-sm text-slate-500">
@@ -454,15 +485,18 @@ export function PayrollPageClient({
                       <th className="px-3 py-3">固定底薪</th>
                       <th className="px-3 py-3">時數薪</th>
                       <th className="px-3 py-3">平日加班</th>
+                      <th className="px-3 py-3">臨時加班(h)</th>
                       <th className="px-3 py-3">國定加倍</th>
                       <th className="px-3 py-3">國定延長</th>
                       <th className="px-3 py-3">彈性獎金</th>
                       {isQuarterlyMonth && <th className="px-3 py-3">季獎金</th>}
                       {isYearEndMonth && <th className="px-3 py-3">年終</th>}
                       <th className="px-3 py-3">特休折現</th>
-                      <th className="px-3 py-3">勞保</th>
-                      <th className="px-3 py-3">健保</th>
-                      <th className="px-3 py-3">實發</th>
+                      <th className="px-3 py-3">應領</th>
+                      <th className="px-3 py-3">勞保扣</th>
+                      <th className="px-3 py-3">健保扣</th>
+                      <th className="px-3 py-3">請假扣款</th>
+                      <th className="px-3 py-3">實領</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
@@ -476,7 +510,29 @@ export function PayrollPageClient({
                           {formatMoney(item.monthlyBaseSalary)}
                         </td>
                         <td className="px-3 py-3">{formatMoney(item.basePay)}</td>
-                        <td className="px-3 py-3">{formatMoney(item.overtimePay)}</td>
+                        <td className="px-3 py-3">
+                          <p>{formatMoney(item.overtimePay)}</p>
+                          <p className="text-xs text-slate-400">
+                            自動 {item.overtimeHours}h
+                            {(item.manualOvertimeHours ?? 0) > 0 &&
+                              ` + 臨時 ${item.manualOvertimeHours}h`}
+                          </p>
+                        </td>
+                        <td className="px-3 py-3">
+                          <input
+                            type="number"
+                            min={0}
+                            max={40}
+                            step={0.5}
+                            value={item.manualOvertimeHours || ""}
+                            placeholder="0"
+                            onChange={(e) =>
+                              updateManualOvertime(item.employeeId, Number(e.target.value))
+                            }
+                            className="w-20 rounded-lg border border-slate-200 px-2 py-1 text-sm"
+                            title="因公臨時延長工時，併入平日加班費"
+                          />
+                        </td>
                         <td className="px-3 py-3 text-rose-700">
                           {item.holidayDoublePay > 0
                             ? `${formatMoney(item.holidayDoublePay)}（${item.specialAttendanceDays}天）`
@@ -517,13 +573,23 @@ export function PayrollPageClient({
                             ? `${formatMoney(item.annualLeavePayout)}（${item.annualLeavePayoutDays}天）`
                             : "—"}
                         </td>
+                        <td className="px-3 py-3 font-medium text-slate-800">
+                          {formatMoney(item.grossPay)}
+                        </td>
+                        <td className="px-3 py-3 text-orange-700">
+                          {item.leaveDeductionTotal > 0
+                            ? `-${formatMoney(item.leaveDeductionTotal)}`
+                            : "—"}
+                        </td>
                         <td className="px-3 py-3 text-red-600">
                           -{formatMoney(item.laborInsurance)}
                         </td>
                         <td className="px-3 py-3 text-red-600">
                           -{formatMoney(item.healthInsurance)}
                         </td>
-                        <td className="px-3 py-3 font-semibold">{formatMoney(item.netPay)}</td>
+                        <td className="px-3 py-3 font-semibold text-blue-700">
+                          {formatMoney(item.netPay)}
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -537,6 +603,75 @@ export function PayrollPageClient({
   );
 }
 
+function MonthlyFundsDashboard({
+  summary,
+  employeeCount,
+}: {
+  summary: ReturnType<typeof summarizeMonthlyPayroll>;
+  employeeCount: number;
+}) {
+  return (
+    <section className="rounded-xl border border-slate-200 bg-gradient-to-br from-slate-50 to-white p-5 shadow-sm">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h3 className="text-base font-semibold text-slate-900">本月資金支出總覽</h3>
+          <p className="mt-1 text-sm text-slate-500">
+            {employeeCount} 位員工 · 含應匯薪資、診所規費與應繳政府項目
+          </p>
+        </div>
+        <div className="rounded-lg bg-blue-600 px-4 py-2 text-right text-white">
+          <p className="text-xs opacity-90">本月預算總支出</p>
+          <p className="text-xl font-bold">{formatMoney(summary.totalBudgetOutlay)}</p>
+        </div>
+      </div>
+
+      <div className="mt-5 grid gap-4 lg:grid-cols-2">
+        <div className="rounded-xl border border-emerald-200 bg-emerald-50/70 p-4">
+          <h4 className="text-sm font-semibold text-emerald-900">付給同仁（應匯員工總額）</h4>
+          <p className="mt-2 text-2xl font-bold text-emerald-800">
+            {formatMoney(summary.totalNetToEmployees)}
+          </p>
+          <p className="mt-1 text-xs text-emerald-700">
+            應領薪資 {formatMoney(summary.totalGross)} − 個人勞健保自付
+          </p>
+        </div>
+
+        <div className="rounded-xl border border-indigo-200 bg-indigo-50/70 p-4">
+          <h4 className="text-sm font-semibold text-indigo-900">付給政府（應繳國家總額）</h4>
+          <p className="mt-2 text-2xl font-bold text-indigo-800">
+            {formatMoney(summary.totalToState)}
+          </p>
+          <ul className="mt-3 space-y-1.5 text-sm text-indigo-900">
+            <li className="flex justify-between gap-4">
+              <span>勞工保險費（個人+雇主）</span>
+              <span className="font-medium">
+                {formatMoney(summary.laborInsuranceGrandTotal)}
+              </span>
+            </li>
+            <li className="flex justify-between gap-4">
+              <span>全民健康保險費（個人+雇主）</span>
+              <span className="font-medium">
+                {formatMoney(summary.healthInsuranceGrandTotal)}
+              </span>
+            </li>
+            <li className="flex justify-between gap-4">
+              <span>勞工退休金提繳（雇主 6%）</span>
+              <span className="font-medium">
+                {formatMoney(summary.laborPensionGrandTotal)}
+              </span>
+            </li>
+          </ul>
+        </div>
+      </div>
+
+      <p className="mt-4 text-xs text-slate-500">
+        預算總支出 = 應發薪資合計 {formatMoney(summary.totalGross)} ＋ 診所負擔規費{" "}
+        {formatMoney(summary.totalClinicBurden)}（雇主勞健保 + 勞退提繳）
+      </p>
+    </section>
+  );
+}
+
 function SalaryStructureBanner() {
   return (
     <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600">
@@ -544,6 +679,9 @@ function SalaryStructureBanner() {
       <ul className="mt-2 list-inside list-disc space-y-0.5 text-xs sm:text-sm">
         <li>
           固定月薪底薪 {formatMoney(CLINIC_PAYROLL.MONTHLY_BASE_SALARY)}（勞健保、6% 勞退申報基數）
+        </li>
+        <li>
+          勞健保個人自付於實領扣除；雇主負擔與 6% 勞退提繳列入「付給政府／診所規費」（請於員工管理設定各項金額）
         </li>
         <li>
           平日加班／特種出勤時薪基數 {CLINIC_PAYROLL.OT_HOURLY_RATE} 元；國定假日／颱風天{" "}
@@ -570,20 +708,28 @@ function StatCard({
   label: string;
   value: string;
   highlight?: boolean;
-  tone?: "violet";
+  tone?: "violet" | "amber";
 }) {
   const styles = highlight
     ? "border-blue-200 bg-blue-50"
     : tone === "violet"
       ? "border-violet-200 bg-violet-50"
-      : "border-slate-200 bg-white";
+      : tone === "amber"
+        ? "border-amber-200 bg-amber-50"
+        : "border-slate-200 bg-white";
 
   return (
     <div className={`rounded-xl border px-4 py-5 shadow-sm ${styles}`}>
       <p className="text-sm text-slate-500">{label}</p>
       <p
         className={`mt-1 text-xl font-semibold ${
-          highlight ? "text-blue-700" : tone === "violet" ? "text-violet-800" : "text-slate-900"
+          highlight
+            ? "text-blue-700"
+            : tone === "violet"
+              ? "text-violet-800"
+              : tone === "amber"
+                ? "text-amber-800"
+                : "text-slate-900"
         }`}
       >
         {value}

@@ -11,14 +11,17 @@ export default function LiffClockPage() {
       {liffId ? (
         <Script
           src="https://static.line-scdn.net/liff/edge/2/sdk.js"
-          strategy="afterInteractive"
+          strategy="beforeInteractive"
           onLoad={onLiffSdkLoaded}
           onError={() => {
             console.error("LIFF SDK 載入失敗");
           }}
         />
       ) : null}
-      <MobileApp liffId={liffId} />
+      <MobileApp
+        liffId={liffId}
+        appUrl={process.env.NEXT_PUBLIC_APP_URL ?? "https://clinic-schedule-payroll.vercel.app"}
+      />
     </>
   );
 }

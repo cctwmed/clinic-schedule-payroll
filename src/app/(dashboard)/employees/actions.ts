@@ -33,6 +33,13 @@ function validateForm(form: EmployeeFormData): string | null {
   if (form.labor_insurance_self_pay < 0 || form.health_insurance_self_pay < 0) {
     return "勞健保自付額不可為負數";
   }
+  if (
+    form.labor_insurance_employer_pay < 0 ||
+    form.health_insurance_employer_pay < 0 ||
+    form.labor_pension_employer_pay < 0
+  ) {
+    return "雇主負擔規費不可為負數";
+  }
   return null;
 }
 
@@ -54,6 +61,9 @@ function toPayload(form: EmployeeFormData, clinicId: string, includeJobTitle = t
     hourly_wage: form.hourly_wage,
     labor_insurance_self_pay: form.labor_insurance_self_pay,
     health_insurance_self_pay: form.health_insurance_self_pay,
+    labor_insurance_employer_pay: form.labor_insurance_employer_pay,
+    health_insurance_employer_pay: form.health_insurance_employer_pay,
+    labor_pension_employer_pay: form.labor_pension_employer_pay,
   };
   if (includeArrivalDate) {
     payload.arrival_date = form.hire_date;

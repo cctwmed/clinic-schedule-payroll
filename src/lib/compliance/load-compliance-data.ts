@@ -26,7 +26,9 @@ export async function loadComplianceData(
 
   const { data: clocks, error: clockError } = await supabase
     .from("clock_records")
-    .select("employee_id, clock_type, clocked_at, employees!inner(clinic_id)")
+    .select(
+      "employee_id, clock_type, clocked_at, payable_clocked_at, early_work_approved, employees!inner(clinic_id)"
+    )
     .eq("employees.clinic_id", clinicId)
     .gte("clock_date", periodStart)
     .lte("clock_date", periodEnd);
@@ -99,6 +101,8 @@ export async function loadComplianceData(
     employeeId: c.employee_id,
     clockType: c.clock_type as ClockEvent["clockType"],
     clockedAt: c.clocked_at,
+    payableClockedAt: c.payable_clocked_at ?? null,
+    earlyWorkApproved: Boolean(c.early_work_approved),
   }));
 
   return {

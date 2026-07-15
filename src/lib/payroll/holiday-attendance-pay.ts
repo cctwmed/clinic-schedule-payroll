@@ -3,6 +3,7 @@ import {
   isTaiwanPublicHoliday,
 } from "@/lib/holidays/taiwan-public-holidays";
 import { CLINIC_PAYROLL } from "@/lib/payroll/constants";
+import { resolvePayableClockIn } from "@/lib/clock/early-punch";
 import type { ClockEvent, WorkShiftBlock } from "@/lib/compliance/types";
 
 const WORK_SHIFT_CODES = new Set(["MORNING", "EVENING", "AFTERNOON"]);
@@ -62,11 +63,16 @@ function computeDayWorkHours(
   let total = 0;
   for (let i = 0; i < dayClocks.length; i++) {
     if (dayClocks[i].clockType !== "clock_in") continue;
+    const inAt = resolvePayableClockIn(
+      dayClocks[i].clockedAt,
+      dayClocks[i].payableClockedAt,
+      dayClocks[i].earlyWorkApproved
+    );
     const out = dayClocks
       .slice(i + 1)
       .find((c) => c.clockType === "clock_out");
     if (out) {
-      total += hoursBetween(out.clockedAt, dayClocks[i].clockedAt);
+      total += hoursBetween(out.clockedAt, inAt);
     }
   }
 

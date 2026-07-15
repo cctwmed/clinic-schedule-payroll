@@ -1,5 +1,9 @@
 import { supabase } from "@/lib/supabase";
 import {
+  evaluateEarlyPunch,
+  formatEarlyPunchNote,
+} from "@/lib/clock/early-punch";
+import {
   evaluateLateForManualCorrection,
   type ClockType,
   type WorkAssignment,
@@ -65,9 +69,14 @@ export async function applyClockRecordCorrection(input: {
     assignment
   );
 
+  const expectedAtDate = lateEval.expectedAt ? new Date(lateEval.expectedAt) : null;
+  const earlyEval = evaluateEarlyPunch(clockType, newClockedAt, expectedAtDate);
+  const earlyNote = formatEarlyPunchNote(earlyEval);
+
   const correctionNote = [
     existing.note,
     note?.trim(),
+    earlyNote,
     `【主管修正】${correctedBy?.trim() || "管理員"} 於 ${new Date().toLocaleString("zh-TW", { timeZone: "Asia/Taipei" })} 修改`,
     `原時間：${existing.clocked_at}`,
   ]
@@ -84,6 +93,11 @@ export async function applyClockRecordCorrection(input: {
       is_late: lateEval.isLate,
       late_minutes: lateEval.lateMinutes,
       expected_at: lateEval.expectedAt,
+      is_early: earlyEval.isEarly,
+      early_minutes: earlyEval.earlyMinutes,
+      payable_clocked_at: earlyEval.payableClockedAt,
+      is_early_abnormal: earlyEval.isEarlyAbnormal,
+      early_work_approved: false,
       is_manually_corrected: true,
       corrected_by: correctedBy?.trim() || "管理員",
       corrected_at: new Date().toISOString(),

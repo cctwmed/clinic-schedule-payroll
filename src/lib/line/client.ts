@@ -30,7 +30,10 @@ export function getLineConfig() {
   return { accessToken, channelSecret, liffId, appUrl };
 }
 
-export function getLiffClockUrl(action?: "clock_in" | "clock_out", tab?: "clock" | "schedule" | "payslip"): string {
+export function getLiffClockUrl(
+  action?: "clock_in" | "clock_out",
+  tab?: "clock" | "schedule" | "payslip" | "leave" | "records" | "forgot"
+): string {
   const { liffId, appUrl } = getLineConfig();
   const params = new URLSearchParams();
   if (action) params.set("action", action);
@@ -118,8 +121,10 @@ export function buildWelcomeTextMessage(
       `▶ 完整打卡頁：${url}`,
       `▶ 上班打卡：${clockInUrl}`,
       `▶ 下班打卡：${clockOutUrl}`,
+      `▶ 我要請假：${getLiffClockUrl(undefined, "leave")}`,
+      `▶ 忘記打卡：${getLiffClockUrl(undefined, "forgot")}`,
       "",
-      "也可輸入：今日打卡 / 上班 / 下班 / 我的班表",
+      "也可輸入：今日打卡 / 上班 / 下班 / 我的班表 / 請假 / 忘記打卡",
     ].join("\n"),
   };
 }

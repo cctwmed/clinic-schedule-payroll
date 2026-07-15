@@ -33,6 +33,7 @@ export default async function PayrollPage({ searchParams }: PageProps) {
           quarterLabel={data.quarterLabel}
           annualSummary={data.annualSummary}
           leavePayoutsDue={data.leavePayoutsDue}
+          pendingEarlyPunchReview={data.pendingEarlyPunchReview}
         />
       </>
     );

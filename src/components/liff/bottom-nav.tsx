@@ -1,11 +1,11 @@
 "use client";
 
-export type MobileTab = "clock" | "schedule" | "payslip";
+export type MobileTab = "clock" | "schedule" | "payslip" | "leave" | "records" | "forgot";
 
 const TABS: { id: MobileTab; label: string; icon: string }[] = [
-  { id: "clock", label: "打卡首頁", icon: "📍" },
-  { id: "schedule", label: "我的班表", icon: "📅" },
-  { id: "payslip", label: "薪水報表", icon: "💰" },
+  { id: "clock", label: "首頁", icon: "🏠" },
+  { id: "schedule", label: "班表", icon: "📅" },
+  { id: "payslip", label: "薪資", icon: "💰" },
 ];
 
 interface BottomNavProps {

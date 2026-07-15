@@ -5,6 +5,8 @@ import { calculateOvertimePay } from "@/lib/payroll/overtime-pay";
 import { CLINIC_PAYROLL } from "@/lib/payroll/constants";
 import { parseScheduleMeta } from "@/lib/schedules/golden-config";
 import { resolveHolidayDates } from "@/lib/payroll/holiday-attendance-pay";
+import { fetchApprovedLeavesForPeriod } from "@/lib/leave/leave-records-service";
+import { summarizeLeavePayroll } from "@/lib/payroll/leave-deductions";
 import type { HolidayDayPayDetail } from "@/lib/payroll/holiday-attendance-pay";
 import { getDaysInMonth, formatWorkDate } from "@/types/schedule";
 
@@ -103,7 +105,7 @@ export async function fetchMobilePayslip(
   const { data: emp } = await supabase
     .from("employees")
     .select(
-      "id, name, employee_no, hire_date, resign_date, hourly_wage, labor_insurance_self_pay, health_insurance_self_pay"
+      "id, name, employee_no, hire_date, resign_date, hourly_wage, labor_insurance_self_pay, health_insurance_self_pay, labor_insurance_employer_pay, health_insurance_employer_pay, labor_pension_employer_pay"
     )
     .eq("id", employeeId)
     .single();
@@ -128,6 +130,14 @@ export async function fetchMobilePayslip(
   );
 
   const complianceData = await loadComplianceData(clinicId, start, end);
+  const approvedLeaves = await fetchApprovedLeavesForPeriod(clinicId, start, end).catch(
+    () => []
+  );
+  const leavePayroll = summarizeLeavePayroll(
+    approvedLeaves,
+    employeeId,
+    Number(emp.hourly_wage)
+  );
 
   const line = calculateEmployeePayroll(
     {
@@ -139,12 +149,15 @@ export async function fetchMobilePayslip(
       hourlyWage: Number(emp.hourly_wage),
       laborInsuranceSelfPay: Number(emp.labor_insurance_self_pay),
       healthInsuranceSelfPay: Number(emp.health_insurance_self_pay),
+      laborInsuranceEmployerPay: Number(emp.labor_insurance_employer_pay ?? 0),
+      healthInsuranceEmployerPay: Number(emp.health_insurance_employer_pay ?? 0),
+      laborPensionEmployerPay: Number(emp.labor_pension_employer_pay ?? 0),
     },
     start,
     end,
     complianceData.shifts,
     complianceData.clocks,
-    {},
+    { leavePayroll },
     {
       year,
       month,
@@ -172,7 +185,18 @@ export async function fetchMobilePayslip(
       holidayPayTotal: line.specialAttendancePay,
       laborInsurance: line.laborInsurance,
       healthInsurance: line.healthInsurance,
+      personalLeaveDeduction: line.personalLeaveDeduction,
+      sickLeaveDeduction: line.sickLeaveDeduction,
+      leaveDeductionTotal: line.leaveDeductionTotal,
+      grossPay: line.grossPay,
       netPay: line.netPay,
+    },
+    leaveDeductions: {
+      personalLeaveHours: line.personalLeaveHours,
+      personalLeaveDeduction: line.personalLeaveDeduction,
+      sickLeaveHours: line.sickLeaveHours,
+      sickLeaveDeduction: line.sickLeaveDeduction,
+      total: line.leaveDeductionTotal,
     },
     hours: {
       regular: line.regularHours,

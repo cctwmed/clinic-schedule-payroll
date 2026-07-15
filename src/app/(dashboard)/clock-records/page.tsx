@@ -17,6 +17,8 @@ export default async function ClockRecordsPage({ searchParams }: PageProps) {
         clinicName={data.clinic.name}
         date={data.date}
         records={data.records}
+        pendingEarlyReview={data.pendingEarlyReview}
+        pendingCorrections={data.pendingCorrections}
       />
     );
   } catch (err) {

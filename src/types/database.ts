@@ -20,6 +20,9 @@ export interface Employee {
   hourly_wage: number;
   labor_insurance_self_pay: number;
   health_insurance_self_pay: number;
+  labor_insurance_employer_pay: number;
+  health_insurance_employer_pay: number;
+  labor_pension_employer_pay: number;
 }
 
 export interface ShiftAssignment {

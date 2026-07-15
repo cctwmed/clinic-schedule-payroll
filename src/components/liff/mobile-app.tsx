@@ -1,10 +1,41 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { BottomNav, type MobileTab } from "@/components/liff/bottom-nav";
+import type { MobileTab } from "@/components/liff/bottom-nav";
+import type { LiffMode } from "@/components/liff/mode-switcher";
+import { SubPageHeader } from "@/components/liff/sub-page-header";
 import { ClockHomeTab } from "@/components/liff/tabs/clock-home-tab";
-import { ScheduleTab } from "@/components/liff/tabs/schedule-tab";
-import { PayslipTab } from "@/components/liff/tabs/payslip-tab";
+
+const ScheduleTab = dynamic(
+  () => import("@/components/liff/tabs/schedule-tab").then((m) => m.ScheduleTab),
+  { loading: () => <TabLoading label="班表" /> }
+);
+const PayslipTab = dynamic(
+  () => import("@/components/liff/tabs/payslip-tab").then((m) => m.PayslipTab),
+  { loading: () => <TabLoading label="薪資" /> }
+);
+const LeaveTab = dynamic(
+  () => import("@/components/liff/tabs/leave-tab").then((m) => m.LeaveTab),
+  { loading: () => <TabLoading label="請假" /> }
+);
+const RecordsTab = dynamic(
+  () => import("@/components/liff/tabs/records-tab").then((m) => m.RecordsTab),
+  { loading: () => <TabLoading label="紀錄" /> }
+);
+const ForgotClockTab = dynamic(
+  () => import("@/components/liff/tabs/forgot-clock-tab").then((m) => m.ForgotClockTab),
+  { loading: () => <TabLoading label="忘記打卡" /> }
+);
+
+function TabLoading({ label }: { label: string }) {
+  return (
+    <div className="flex min-h-[40vh] flex-col items-center justify-center gap-2 px-6">
+      <div className="h-7 w-7 animate-spin rounded-full border-2 border-emerald-500 border-t-transparent" />
+      <p className="text-sm text-slate-500">載入{label}…</p>
+    </div>
+  );
+}
 
 declare global {
   interface Window {
@@ -22,22 +53,55 @@ declare global {
 
 interface MobileAppProps {
   liffId?: string;
+  appUrl?: string;
 }
 
 type InitPhase = "loading-sdk" | "init-liff" | "login" | "ready" | "error";
 
+const SUB_PAGE_TITLES: Partial<Record<MobileTab, string>> = {
+  schedule: "我的班表",
+  payslip: "我的薪資",
+  leave: "我要請假",
+  records: "出勤紀錄",
+  forgot: "忘記打卡",
+};
+
 function readInitialTab(): MobileTab {
   if (typeof window === "undefined") return "clock";
   const tab = new URLSearchParams(window.location.search).get("tab");
-  if (tab === "schedule" || tab === "payslip" || tab === "clock") return tab;
+  const allowed: MobileTab[] = [
+    "clock",
+    "schedule",
+    "payslip",
+    "leave",
+    "records",
+    "forgot",
+  ];
+  if (tab && allowed.includes(tab as MobileTab)) return tab as MobileTab;
   return "clock";
 }
 
-export function MobileApp({ liffId }: MobileAppProps) {
+function buildLiffRedirectUri(): string {
+  const url = new URL(`${window.location.origin}/liff/clock`);
+  const params = new URLSearchParams(window.location.search);
+  const action = params.get("action");
+  const tab = params.get("tab");
+  if (action === "clock_in" || action === "clock_out") {
+    url.searchParams.set("action", action);
+  }
+  if (tab && tab !== "clock") {
+    url.searchParams.set("tab", tab);
+  }
+  return url.toString();
+}
+
+export function MobileApp({ liffId, appUrl }: MobileAppProps) {
+  const [mode, setMode] = useState<LiffMode>("employee");
   const [tab, setTab] = useState<MobileTab>("clock");
   const [phase, setPhase] = useState<InitPhase>("loading-sdk");
   const [lineUserId, setLineUserId] = useState<string | null>(null);
   const [displayName, setDisplayName] = useState("");
+  const [isClinicAdmin, setIsClinicAdmin] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [outsideLine, setOutsideLine] = useState(false);
   const [sdkReady, setSdkReady] = useState(false);
@@ -56,8 +120,7 @@ export function MobileApp({ liffId }: MobileAppProps) {
 
         if (!window.liff.isLoggedIn()) {
           setPhase("login");
-          const redirectUri = `${window.location.origin}/liff/clock`;
-          window.liff.login({ redirectUri });
+          window.liff.login({ redirectUri: buildLiffRedirectUri() });
           return;
         }
 
@@ -111,7 +174,7 @@ export function MobileApp({ liffId }: MobileAppProps) {
         clearInterval(timer);
         setSdkReady(true);
       }
-    }, 100);
+    }, 50);
     const timeout = setTimeout(() => {
       clearInterval(timer);
       if (!window.liff) {
@@ -120,13 +183,30 @@ export function MobileApp({ liffId }: MobileAppProps) {
           "LIFF 載入逾時。請改在官方帳號聊天室輸入「今日打卡」，或點選回覆訊息中的連結。"
         );
       }
-    }, 12000);
+    }, 8000);
     return () => {
       clearInterval(timer);
       clearTimeout(timeout);
       window.removeEventListener("liff-sdk-ready", onSdkReady);
     };
   }, [liffId, sdkReady]);
+
+  useEffect(() => {
+    if (phase !== "ready" || !lineUserId) return;
+    fetch(`/api/mobile/me?lineUserId=${encodeURIComponent(lineUserId)}`)
+      .then(async (res) => {
+        const data = await res.json();
+        if (res.ok) setIsClinicAdmin(Boolean(data.isClinicAdmin));
+      })
+      .catch(() => {});
+  }, [phase, lineUserId]);
+
+  useEffect(() => {
+    if (!isClinicAdmin && mode === "admin") setMode("employee");
+  }, [isClinicAdmin, mode]);
+
+  const goHome = () => setTab("clock");
+  const goBind = () => setTab("clock");
 
   const content = useMemo(() => {
     if (phase !== "ready" || !lineUserId) {
@@ -145,14 +225,14 @@ export function MobileApp({ liffId }: MobileAppProps) {
                     ? `https://liff.line.me/${liffId}`
                     : "https://clinic-schedule-payroll.vercel.app/liff/clock"
                 }
-                className="mt-2 rounded-lg bg-blue-600 px-4 py-2 text-xs font-medium text-white"
+                className="mt-2 rounded-lg bg-emerald-600 px-4 py-2 text-xs font-medium text-white"
               >
                 直接開啟打卡頁
               </a>
             </>
           ) : (
             <>
-              <div className="h-8 w-8 animate-spin rounded-full border-2 border-blue-500 border-t-transparent" />
+              <div className="h-8 w-8 animate-spin rounded-full border-2 border-emerald-500 border-t-transparent" />
               <p className="text-sm text-slate-500">
                 {phase === "login"
                   ? "正在登入 LINE…"
@@ -166,33 +246,55 @@ export function MobileApp({ liffId }: MobileAppProps) {
       );
     }
 
-    switch (tab) {
-      case "schedule":
-        return <ScheduleTab lineUserId={lineUserId} onGoBind={() => setTab("clock")} />;
-      case "payslip":
-        return <PayslipTab lineUserId={lineUserId} onGoBind={() => setTab("clock")} />;
-      default:
-        return (
-          <ClockHomeTab
-            lineUserId={lineUserId}
-            displayName={displayName}
-            liffId={liffId}
-          />
-        );
+    if (tab === "clock") {
+      return (
+        <ClockHomeTab
+          lineUserId={lineUserId}
+          displayName={displayName}
+          liffId={liffId}
+          appUrl={appUrl}
+          isClinicAdmin={isClinicAdmin}
+          mode={mode}
+          onModeChange={setMode}
+          onNavigate={setTab}
+        />
+      );
     }
-  }, [tab, phase, lineUserId, displayName, liffId, error]);
+
+    const subTitle = SUB_PAGE_TITLES[tab] ?? "功能";
+    const subPage = (() => {
+      switch (tab) {
+        case "schedule":
+          return <ScheduleTab lineUserId={lineUserId} onGoBind={goBind} />;
+        case "payslip":
+          return <PayslipTab lineUserId={lineUserId} onGoBind={goBind} />;
+        case "leave":
+          return <LeaveTab lineUserId={lineUserId} onGoBind={goBind} onBack={goHome} />;
+        case "records":
+          return <RecordsTab lineUserId={lineUserId} onGoBind={goBind} onBack={goHome} />;
+        case "forgot":
+          return <ForgotClockTab lineUserId={lineUserId} onGoBind={goBind} onBack={goHome} />;
+        default:
+          return null;
+      }
+    })();
+
+    return (
+      <div className="px-4 pb-8 pt-2">
+        <SubPageHeader title={subTitle} onBack={goHome} />
+        {subPage}
+      </div>
+    );
+  }, [tab, mode, phase, lineUserId, displayName, liffId, error, appUrl, isClinicAdmin]);
 
   return (
-    <div className="mx-auto min-h-screen max-w-md bg-gradient-to-b from-blue-50 to-slate-100 pb-24">
+    <div className="mx-auto min-h-screen max-w-md bg-gradient-to-b from-sky-50 via-slate-50 to-slate-100">
       {outsideLine && phase === "ready" && (
         <div className="border-b border-amber-200 bg-amber-50 px-4 py-2 text-center text-xs text-amber-800">
           建議在 LINE App 內開啟，GPS 打卡較穩定
         </div>
       )}
       {content}
-      {phase === "ready" && lineUserId && (
-        <BottomNav active={tab} onChange={setTab} />
-      )}
     </div>
   );
 }

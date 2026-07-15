@@ -50,6 +50,9 @@ export function EmployeeModal({ open, employee, onClose, onSuccess }: EmployeeMo
         hourly_wage: Number(employee.hourly_wage),
         labor_insurance_self_pay: Number(employee.labor_insurance_self_pay),
         health_insurance_self_pay: Number(employee.health_insurance_self_pay),
+        labor_insurance_employer_pay: Number(employee.labor_insurance_employer_pay ?? 0),
+        health_insurance_employer_pay: Number(employee.health_insurance_employer_pay ?? 0),
+        labor_pension_employer_pay: Number(employee.labor_pension_employer_pay ?? 0),
       });
     } else {
       setForm(EMPTY_EMPLOYEE_FORM);
@@ -221,7 +224,7 @@ export function EmployeeModal({ open, employee, onClose, onSuccess }: EmployeeMo
                   placeholder="220"
                 />
               </Field>
-              <Field label="勞保自付額（NT$）">
+              <Field label="勞保個人自付（NT$）">
                 <input
                   type="number"
                   min={0}
@@ -232,7 +235,7 @@ export function EmployeeModal({ open, employee, onClose, onSuccess }: EmployeeMo
                   placeholder="1100"
                 />
               </Field>
-              <Field label="健保自付額（NT$）">
+              <Field label="健保個人自付（NT$）">
                 <input
                   type="number"
                   min={0}
@@ -244,6 +247,50 @@ export function EmployeeModal({ open, employee, onClose, onSuccess }: EmployeeMo
                 />
               </Field>
             </div>
+            <div className="mt-4 grid gap-4 sm:grid-cols-3">
+              <Field label="勞保雇主負擔（NT$）">
+                <input
+                  type="number"
+                  min={0}
+                  step={1}
+                  className={inputClass}
+                  value={form.labor_insurance_employer_pay || ""}
+                  onChange={(e) =>
+                    updateField("labor_insurance_employer_pay", Number(e.target.value))
+                  }
+                  placeholder="依級距"
+                />
+              </Field>
+              <Field label="健保雇主負擔（NT$）">
+                <input
+                  type="number"
+                  min={0}
+                  step={1}
+                  className={inputClass}
+                  value={form.health_insurance_employer_pay || ""}
+                  onChange={(e) =>
+                    updateField("health_insurance_employer_pay", Number(e.target.value))
+                  }
+                  placeholder="依級距"
+                />
+              </Field>
+              <Field label="勞退雇主提繳 6%（NT$）">
+                <input
+                  type="number"
+                  min={0}
+                  step={1}
+                  className={inputClass}
+                  value={form.labor_pension_employer_pay || ""}
+                  onChange={(e) =>
+                    updateField("labor_pension_employer_pay", Number(e.target.value))
+                  }
+                  placeholder="依級距"
+                />
+              </Field>
+            </div>
+            <p className="mt-2 text-xs text-slate-500">
+              個人自付額於薪資結算時自實領扣除；雇主負擔與勞退列入診所規費及應繳政府總額。
+            </p>
           </section>
 
           <div className="flex justify-end gap-3 border-t border-slate-200 pt-4">

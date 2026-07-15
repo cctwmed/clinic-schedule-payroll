@@ -1,8 +1,10 @@
 /**
  * 建立 Rich Menu 圖片並上傳（Windows 可用）
  * 執行：node scripts/upload-rich-menu.mjs
+ *
+ * 使用 2500×168 緊湊選單：聊天室底部一點即開 LIFF 打卡首頁
  */
-import { readFileSync, writeFileSync, existsSync } from "fs";
+import { readFileSync, existsSync, unlinkSync } from "fs";
 import { resolve } from "path";
 import { execSync } from "child_process";
 
@@ -29,46 +31,69 @@ if (!token || !liffId) {
   process.exit(1);
 }
 
-const liffBase = `https://liff.line.me/${liffId}`;
+const liffClockUrl = `https://liff.line.me/${liffId}`;
 
-// 用 PowerShell 產生 2500×843 藍色 JPG
-if (!existsSync(imgPath)) {
-  const ps = `
+/** 每次重跑都重繪，避免沿用舊的小字圖 */
+if (existsSync(imgPath)) {
+  unlinkSync(imgPath);
+}
+
+// 2500×843 全幅選單：整列可點，直接開 LIFF 打卡首頁
+const ps = `
 Add-Type -AssemblyName System.Drawing
 $bmp = New-Object System.Drawing.Bitmap 2500,843
 $g = [System.Drawing.Graphics]::FromImage($bmp)
+$g.TextRenderingHint = [System.Drawing.Text.TextRenderingHint]::AntiAliasGridFit
 $g.Clear([System.Drawing.Color]::FromArgb(37,99,235))
-$font = New-Object System.Drawing.Font('Arial',48,[System.Drawing.FontStyle]::Bold)
+$titleFont = New-Object System.Drawing.Font('Microsoft JhengHei',120,[System.Drawing.FontStyle]::Bold)
+$subFont = New-Object System.Drawing.Font('Microsoft JhengHei',64,[System.Drawing.FontStyle]::Regular)
+$hintFont = New-Object System.Drawing.Font('Microsoft JhengHei',48,[System.Drawing.FontStyle]::Regular)
 $brush = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::White)
-$g.DrawString('晴川診所 打卡選單', $font, $brush, 800, 380)
+$title = '晴川診所'
+$sub = '打卡首頁'
+$hint = '點此進入 · 班表／薪資請進入後切換'
+$titleSize = $g.MeasureString($title, $titleFont)
+$subSize = $g.MeasureString($sub, $subFont)
+$hintSize = $g.MeasureString($hint, $hintFont)
+$g.DrawString($title, $titleFont, $brush, (2500 - $titleSize.Width) / 2, 180)
+$g.DrawString($sub, $subFont, $brush, (2500 - $subSize.Width) / 2, 360)
+$g.DrawString($hint, $hintFont, $brush, (2500 - $hintSize.Width) / 2, 520)
 $bmp.Save('${imgPath.replace(/\\/g, "\\\\")}', [System.Drawing.Imaging.ImageFormat]::Jpeg)
 $g.Dispose(); $bmp.Dispose()
 `;
-  execSync(`powershell -NoProfile -Command "${ps.replace(/"/g, '\\"').replace(/\n/g, "; ")}"`, {
-    stdio: "inherit",
-  });
-}
+execSync(`powershell -NoProfile -Command "${ps.replace(/"/g, '\\"').replace(/\n/g, "; ")}"`, {
+  stdio: "inherit",
+});
 
 const richMenu = {
   size: { width: 2500, height: 843 },
   selected: true,
-  name: "晴川診所打卡選單",
-  chatBarText: "📍 打卡選單",
+  name: "晴川診所打卡首頁",
+  chatBarText: "📍 晴川診所 · 打卡首頁",
   areas: [
     {
-      bounds: { x: 0, y: 0, width: 833, height: 843 },
-      action: { type: "uri", label: "打卡首頁", uri: liffBase },
-    },
-    {
-      bounds: { x: 833, y: 0, width: 834, height: 843 },
-      action: { type: "uri", label: "我的班表", uri: `${liffBase}?tab=schedule` },
-    },
-    {
-      bounds: { x: 1667, y: 0, width: 833, height: 843 },
-      action: { type: "uri", label: "薪水報表", uri: `${liffBase}?tab=payslip` },
+      bounds: { x: 0, y: 0, width: 2500, height: 843 },
+      action: { type: "uri", label: "打卡首頁", uri: liffClockUrl },
     },
   ],
 };
+
+async function deleteOldDefaultMenus() {
+  const listRes = await fetch("https://api.line.me/v2/bot/richmenu/list", {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!listRes.ok) return;
+  const { richmenus } = await listRes.json();
+  for (const menu of richmenus ?? []) {
+    await fetch(`https://api.line.me/v2/bot/richmenu/${menu.richMenuId}`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${token}` },
+    });
+  }
+}
+
+console.log("清除舊 Rich Menu…");
+await deleteOldDefaultMenus();
 
 console.log("建立 Rich Menu…");
 const createRes = await fetch("https://api.line.me/v2/bot/richmenu", {
@@ -88,7 +113,6 @@ if (!createRes.ok) {
 const richMenuId = createData.richMenuId;
 console.log("Rich Menu ID:", richMenuId);
 
-// LINE 要求 raw binary + Content-Type，不能用 multipart/form-data
 const imageBuffer = readFileSync(imgPath);
 const uploadRes = await fetch(
   `https://api-data.line.me/v2/bot/richmenu/${richMenuId}/content`,
@@ -112,6 +136,10 @@ const linkRes = await fetch(
   `https://api.line.me/v2/bot/user/all/richmenu/${richMenuId}`,
   { method: "POST", headers: { Authorization: `Bearer ${token}` } }
 );
-console.log(linkRes.ok ? "✅ 已設為預設 Rich Menu（聊天室底部會出現選單）" : "⚠️ 設為預設失敗");
+console.log(
+  linkRes.ok
+    ? "✅ 已設為預設 Rich Menu（底部一點即開打卡首頁）"
+    : "⚠️ 設為預設失敗"
+);
 
-console.log("\n請在 LINE 重新開啟「晴川診所-人事打卡專區」，底部應出現「📍 打卡選單」");
+console.log("\n請重新開啟「晴川診所-人事打卡專區」，底部應顯示「📍 晴川診所 · 打卡首頁」");

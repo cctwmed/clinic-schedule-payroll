@@ -28,7 +28,12 @@ export interface WorkShiftBlock {
 export interface ClockEvent {
   employeeId: string;
   clockType: "clock_in" | "clock_out" | "break_start" | "break_end";
+  /** 實際打卡時間 */
   clockedAt: string;
+  /** 薪資工時起算（上班卡）；未設則同 clockedAt */
+  payableClockedAt?: string | null;
+  /** 院長核可提早工時後，起算改回實際打卡 */
+  earlyWorkApproved?: boolean;
 }
 
 export interface DayOffRecord {

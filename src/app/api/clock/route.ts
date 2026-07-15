@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { resolveClinicAdmin } from "@/lib/employee/access";
 import { supabase } from "@/lib/supabase";
 import { getDefaultClinic, taipeiToday } from "@/lib/clinic";
 import { DEFAULT_GEO_RADIUS_M } from "@/lib/geo/constants";
@@ -11,6 +12,11 @@ import {
   resolveWorkDutyStatus,
   workDutyStatusLabel,
 } from "@/lib/clock/work-status";
+import {
+  evaluateEarlyPunch,
+  formatEarlyPunchNote,
+  formatEarlyPunchUserMessage,
+} from "@/lib/clock/early-punch";
 import {
   filterWorkAssignments,
   resolveClockInAssignment,
@@ -164,7 +170,21 @@ export async function POST(request: NextRequest) {
     if (match.shiftLabel) noteParts.push(`班別：${match.shiftLabel}`);
     if (match.isLate) noteParts.push(`遲到 ${match.lateMinutes} 分鐘`);
 
-    const baseRecord = {
+    const expectedAtDate = match.expectedAt ? new Date(match.expectedAt) : null;
+    const earlyEval =
+      clockType === "clock_in"
+        ? evaluateEarlyPunch(clockType, clockedAt, expectedAtDate)
+        : {
+            isEarly: false,
+            earlyMinutes: 0,
+            isEarlyAbnormal: false,
+            payableClockedAt: clockedAt.toISOString(),
+            earlyWorkApproved: false,
+          };
+    const earlyNote = formatEarlyPunchNote(earlyEval);
+    if (earlyNote) noteParts.push(earlyNote);
+
+    const insertPayload = {
       employee_id: resolvedEmployeeId,
       assignment_id: match.assignmentId,
       clock_type: clockType,
@@ -177,28 +197,33 @@ export async function POST(request: NextRequest) {
       source: "line_liff" as const,
       note: noteParts.length > 0 ? noteParts.join("；") : null,
       device_info: { userAgent: request.headers.get("user-agent") },
+      is_late: match.isLate,
+      late_minutes: match.lateMinutes,
+      expected_at: match.expectedAt,
+      is_early: earlyEval.isEarly,
+      early_minutes: earlyEval.earlyMinutes,
+      payable_clocked_at: earlyEval.payableClockedAt,
+      is_early_abnormal: earlyEval.isEarlyAbnormal,
+      early_work_approved: earlyEval.earlyWorkApproved,
     };
 
     let record;
     let error;
     ({ data: record, error } = await supabase
       .from("clock_records")
-      .insert({
-        ...baseRecord,
-        is_late: match.isLate,
-        late_minutes: match.lateMinutes,
-        expected_at: match.expectedAt,
-      })
+      .insert(insertPayload)
       .select(
-        "id, clocked_at, validation, distance_from_clinic_m, is_late, late_minutes, clock_type"
+        "id, clocked_at, validation, distance_from_clinic_m, is_late, late_minutes, clock_type, is_early, is_early_abnormal"
       )
       .single());
 
     if (error?.message.includes("schema cache")) {
+      const { is_early: _e, early_minutes: _em, payable_clocked_at: _p, is_early_abnormal: _a, early_work_approved: _w, ...fallback } =
+        insertPayload;
       ({ data: record, error } = await supabase
         .from("clock_records")
-        .insert(baseRecord)
-        .select("id, clocked_at, validation, distance_from_clinic_m, clock_type")
+        .insert(fallback)
+        .select("id, clocked_at, validation, distance_from_clinic_m, is_late, late_minutes, clock_type")
         .single());
     }
 
@@ -216,6 +241,10 @@ export async function POST(request: NextRequest) {
     let message = `${clockLabels[clockType]}打卡成功！`;
     if (match.isLate) {
       message += `（遲到 ${match.lateMinutes} 分鐘，已註記）`;
+    }
+    const earlyMsg = formatEarlyPunchUserMessage(earlyEval, expectedAtDate);
+    if (earlyMsg) {
+      message += ` ${earlyMsg}`;
     }
 
     return NextResponse.json({
@@ -242,65 +271,73 @@ export async function GET(request: NextRequest) {
   }
 
   const today = taipeiToday();
-  const clinic = await getDefaultClinic();
+  const lookbackStart = addDaysTaipei(today, -7);
 
-  const { data: binding } = await supabase
-    .from("employee_line_bindings")
-    .select("employee_id, employees(id, name)")
-    .eq("line_user_id", lineUserId)
-    .eq("is_active", true)
-    .maybeSingle();
+  const [clinic, bindingResult] = await Promise.all([
+    getDefaultClinic(),
+    supabase
+      .from("employee_line_bindings")
+      .select("employee_id, employees(id, name, role)")
+      .eq("line_user_id", lineUserId)
+      .eq("is_active", true)
+      .maybeSingle(),
+  ]);
 
-  const { data: employees } = await supabase
-    .from("employees")
-    .select("id, name, employee_no")
-    .eq("status", "active")
-    .order("employee_no");
+  const binding = bindingResult.data;
 
   let assignments: WorkAssignment[] = [];
   let recentAssignments: WorkAssignment[] = [];
   let todayClocks: ExistingClock[] = [];
   let recentClocks: ExistingClock[] = [];
   let nextAction: "clock_in" | "clock_out" | "done" = "clock_in";
+  let isClinicAdmin = false;
+
+  let employees: { id: string; name: string; employee_no: string }[] | null = null;
 
   if (binding?.employee_id) {
-    const lookbackStart = addDaysTaipei(today, -14);
+    const empMeta = getEmployeeMeta(binding.employees);
+    isClinicAdmin = resolveClinicAdmin(empMeta);
 
-    const { data: assignData } = await supabase
-      .from("shift_assignments")
-      .select("id, expected_clock_in, expected_clock_out, shift_types(code, name)")
-      .eq("employee_id", binding.employee_id)
-      .eq("work_date", today)
-      .neq("status", "cancelled")
-      .order("expected_clock_in");
+    const [assignTodayRes, assignRecentRes, clocksRes] = await Promise.all([
+      supabase
+        .from("shift_assignments")
+        .select("id, expected_clock_in, expected_clock_out, shift_types(code, name)")
+        .eq("employee_id", binding.employee_id)
+        .eq("work_date", today)
+        .neq("status", "cancelled")
+        .order("expected_clock_in"),
+      supabase
+        .from("shift_assignments")
+        .select("id, expected_clock_in, expected_clock_out, shift_types(code, name)")
+        .eq("employee_id", binding.employee_id)
+        .gte("work_date", lookbackStart)
+        .lte("work_date", today)
+        .neq("status", "cancelled")
+        .order("work_date")
+        .order("expected_clock_in"),
+      supabase
+        .from("clock_records")
+        .select(
+          "id, clock_type, clocked_at, validation, is_late, late_minutes, is_manually_corrected, assignment_id, note"
+        )
+        .eq("employee_id", binding.employee_id)
+        .gte("clock_date", lookbackStart)
+        .lte("clock_date", today)
+        .order("clocked_at"),
+    ]);
 
-    assignments = mapAssignments(assignData ?? []);
-
-    const { data: recentAssignData } = await supabase
-      .from("shift_assignments")
-      .select("id, expected_clock_in, expected_clock_out, shift_types(code, name)")
-      .eq("employee_id", binding.employee_id)
-      .gte("work_date", lookbackStart)
-      .lte("work_date", today)
-      .neq("status", "cancelled")
-      .order("work_date")
-      .order("expected_clock_in");
-
-    recentAssignments = mapAssignments(recentAssignData ?? []);
-
-    const { data: clocks } = await supabase
-      .from("clock_records")
-      .select(
-        "id, clock_type, clocked_at, validation, is_late, late_minutes, is_manually_corrected, assignment_id, note"
-      )
-      .eq("employee_id", binding.employee_id)
-      .gte("clock_date", lookbackStart)
-      .lte("clock_date", today)
-      .order("clocked_at");
-
-    recentClocks = (clocks ?? []) as ExistingClock[];
+    assignments = mapAssignments(assignTodayRes.data ?? []);
+    recentAssignments = mapAssignments(assignRecentRes.data ?? []);
+    recentClocks = (clocksRes.data ?? []) as ExistingClock[];
     todayClocks = recentClocks.filter((c) => c.clocked_at.startsWith(today));
     nextAction = suggestNextClockAction(assignments, todayClocks);
+  } else {
+    const { data } = await supabase
+      .from("employees")
+      .select("id, name, employee_no")
+      .eq("status", "active")
+      .order("employee_no");
+    employees = data ?? [];
   }
 
   const workToday = filterWorkAssignments(assignments);
@@ -329,6 +366,7 @@ export async function GET(request: NextRequest) {
           employeeName: getEmployeeName(binding.employees),
         }
       : null,
+    isClinicAdmin,
     employees: employees ?? [],
     assignments: workToday,
     shiftStatuses,
@@ -357,4 +395,13 @@ function getEmployeeName(employees: unknown): string | undefined {
     return (employees[0] as { name?: string })?.name;
   }
   return (employees as { name?: string } | null)?.name;
+}
+
+function getEmployeeMeta(
+  employees: unknown
+): { role?: string; is_clinic_admin?: boolean; name?: string } | null {
+  if (Array.isArray(employees)) {
+    return (employees[0] as { role?: string; is_clinic_admin?: boolean; name?: string }) ?? null;
+  }
+  return employees as { role?: string; is_clinic_admin?: boolean; name?: string } | null;
 }

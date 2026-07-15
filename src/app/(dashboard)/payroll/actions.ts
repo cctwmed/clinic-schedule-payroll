@@ -18,7 +18,10 @@ import {
   getQuarterLabel,
 } from "@/lib/payroll/constants";
 import { fetchAnnualPayrollSummary, type AnnualPayrollSummary } from "@/lib/payroll/annual-summary";
+import { countPendingEarlyAbnormal } from "@/lib/clock/early-punch-review";
 import { findLeavePayoutsDue, markLeaveRecordSettled } from "@/lib/leave/service";
+import { fetchApprovedLeavesForPeriod } from "@/lib/leave/leave-records-service";
+import { summarizeLeavePayroll } from "@/lib/payroll/leave-deductions";
 import {
   calculateEmployeePayroll,
   type PayrollLineItem,
@@ -33,6 +36,7 @@ interface SavedBonusBreakdown {
   annualLeavePayout?: number;
   annualLeavePayoutDays?: number;
   annualLeaveRecordId?: string;
+  manualOvertimeHours?: number;
 }
 
 export async function fetchPayrollPageData(year: number, month: number) {
@@ -43,7 +47,7 @@ export async function fetchPayrollPageData(year: number, month: number) {
   const { data: employees, error: empError } = await supabase
     .from("employees")
     .select(
-      "id, name, employee_no, hire_date, resign_date, hourly_wage, labor_insurance_self_pay, health_insurance_self_pay"
+      "id, name, employee_no, hire_date, resign_date, hourly_wage, labor_insurance_self_pay, health_insurance_self_pay, labor_insurance_employer_pay, health_insurance_employer_pay, labor_pension_employer_pay"
     )
     .eq("clinic_id", clinic.id)
     .eq("status", "active")
@@ -112,9 +116,18 @@ export async function fetchPayrollPageData(year: number, month: number) {
   const leavePayouts = await findLeavePayoutsDue(clinic.id, year, month);
   const payoutByEmployee = new Map(leavePayouts.map((p) => [p.employeeId, p]));
 
+  const approvedLeaves = await fetchApprovedLeavesForPeriod(clinic.id, start, end).catch(
+    () => []
+  );
+
   const lineItems: PayrollLineItem[] = (employees ?? []).map((emp) => {
     const saved = savedBonuses.get(emp.id);
     const due = payoutByEmployee.get(emp.id);
+    const leavePayroll = summarizeLeavePayroll(
+      approvedLeaves,
+      emp.id,
+      Number(emp.hourly_wage)
+    );
     return calculateEmployeePayroll(
       {
         id: emp.id,
@@ -125,6 +138,9 @@ export async function fetchPayrollPageData(year: number, month: number) {
         hourlyWage: Number(emp.hourly_wage),
         laborInsuranceSelfPay: Number(emp.labor_insurance_self_pay),
         healthInsuranceSelfPay: Number(emp.health_insurance_self_pay),
+        laborInsuranceEmployerPay: Number(emp.labor_insurance_employer_pay ?? 0),
+        healthInsuranceEmployerPay: Number(emp.health_insurance_employer_pay ?? 0),
+        laborPensionEmployerPay: Number(emp.labor_pension_employer_pay ?? 0),
       },
       start,
       end,
@@ -138,6 +154,8 @@ export async function fetchPayrollPageData(year: number, month: number) {
         annualLeavePayout: due?.payoutAmount ?? saved?.annualLeavePayout ?? 0,
         annualLeavePayoutDays: due?.unusedDays ?? saved?.annualLeavePayoutDays ?? 0,
         annualLeaveRecordId: due?.recordId ?? saved?.annualLeaveRecordId,
+        manualOvertimeHours: saved?.manualOvertimeHours ?? 0,
+        leavePayroll,
       },
       {
         year,
@@ -163,6 +181,10 @@ export async function fetchPayrollPageData(year: number, month: number) {
     annualSummary = await fetchAnnualPayrollSummary(clinic.id, year);
   }
 
+  const pendingEarlyPunchReview = await countPendingEarlyAbnormal(clinic.id).catch(
+    () => 0
+  );
+
   return {
     clinic,
     year,
@@ -178,6 +200,7 @@ export async function fetchPayrollPageData(year: number, month: number) {
     quarterLabel: getQuarterLabel(month),
     annualSummary,
     leavePayoutsDue: leavePayouts,
+    pendingEarlyPunchReview,
   };
 }
 
@@ -241,6 +264,13 @@ export async function savePayrollRun(
           monthlyBaseSalary: item.monthlyBaseSalary,
           laborInsurance: item.laborInsurance,
           healthInsurance: item.healthInsurance,
+          laborInsuranceEmployerPay: item.laborInsuranceEmployerPay,
+          healthInsuranceEmployerPay: item.healthInsuranceEmployerPay,
+          laborPensionEmployerPay: item.laborPensionEmployerPay,
+          employeeDeductions: item.employeeDeductions,
+          clinicBurdenTotal: item.clinicBurdenTotal,
+          totalToStatePerEmployee: item.totalToStatePerEmployee,
+          manualOvertimeHours: item.manualOvertimeHours,
           taxForm50NonRecurring: item.nonRecurringTotal,
           insuranceBase: item.monthlyBaseSalary,
         },

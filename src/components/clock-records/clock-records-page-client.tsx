@@ -5,13 +5,19 @@ import { useState, useTransition } from "react";
 import { DashboardHeader } from "@/components/layout/sidebar";
 import {
   correctClockRecord,
+  reviewEarlyPunch,
+  reviewForgotClockRequest,
   type ClockRecordRow,
+  type CorrectionRequestRow,
 } from "@/app/(dashboard)/clock-records/actions";
+import { EARLY_PUNCH_BUFFER_MINUTES } from "@/lib/clock/early-punch";
 
 interface ClockRecordsPageClientProps {
   clinicName: string;
   date: string;
   records: ClockRecordRow[];
+  pendingEarlyReview?: number;
+  pendingCorrections?: CorrectionRequestRow[];
 }
 
 const CLOCK_TYPE_LABELS: Record<string, string> = {
@@ -25,6 +31,8 @@ export function ClockRecordsPageClient({
   clinicName,
   date,
   records,
+  pendingEarlyReview = 0,
+  pendingCorrections = [],
 }: ClockRecordsPageClientProps) {
   const router = useRouter();
   const [editing, setEditing] = useState<ClockRecordRow | null>(null);
@@ -42,7 +50,7 @@ export function ClockRecordsPageClient({
     <>
       <DashboardHeader
         title="打卡紀錄"
-        description={`${clinicName} — 主管檢視與修正（遲到／忘記打卡）`}
+        description={`${clinicName} — 主管檢視與修正（遲到／忘記打卡／提早審核）`}
         action={
           <div className="flex items-center gap-2">
             <button
@@ -69,12 +77,96 @@ export function ClockRecordsPageClient({
           </div>
         )}
 
-        <div className="grid gap-4 sm:grid-cols-3">
+        {pendingCorrections.length > 0 && (
+          <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+            <p className="font-semibold">
+              有 {pendingCorrections.length} 筆「忘記打卡補登」待審核
+            </p>
+            <ul className="mt-3 space-y-2">
+              {pendingCorrections.map((req) => (
+                <li
+                  key={req.id}
+                  className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-100 bg-white px-3 py-2 text-xs"
+                >
+                  <div>
+                    <p className="font-medium text-slate-900">
+                      {req.employee_name} · {req.work_date} ·{" "}
+                      {CLOCK_TYPE_LABELS[req.clock_type] ?? req.clock_type}{" "}
+                      {req.requested_time}
+                    </p>
+                    {req.reason && (
+                      <p className="mt-0.5 text-slate-500">原因：{req.reason}</p>
+                    )}
+                  </div>
+                  <div className="flex gap-1">
+                    <button
+                      type="button"
+                      disabled={isPending}
+                      onClick={() => {
+                        startTransition(async () => {
+                          const result = await reviewForgotClockRequest({
+                            requestId: req.id,
+                            approved: false,
+                          });
+                          setMessage(
+                            result.success ? "已駁回補登申請" : result.error ?? "操作失敗"
+                          );
+                          if (result.success) router.refresh();
+                        });
+                      }}
+                      className="rounded-md px-2 py-1 text-slate-600 hover:bg-slate-100"
+                    >
+                      駁回
+                    </button>
+                    <button
+                      type="button"
+                      disabled={isPending}
+                      onClick={() => {
+                        startTransition(async () => {
+                          const result = await reviewForgotClockRequest({
+                            requestId: req.id,
+                            approved: true,
+                          });
+                          setMessage(
+                            result.success ? "已核准並補登打卡" : result.error ?? "操作失敗"
+                          );
+                          if (result.success) router.refresh();
+                        });
+                      }}
+                      className="rounded-md px-2 py-1 font-medium text-emerald-700 hover:bg-emerald-50"
+                    >
+                      核准補登
+                    </button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {pendingEarlyReview > 0 && (
+          <div className="rounded-xl border border-orange-200 bg-orange-50 px-4 py-3 text-sm text-orange-900">
+            <p className="font-semibold">
+              有 {pendingEarlyReview} 筆「異常提早打卡」待審核（超過 {EARLY_PUNCH_BUFFER_MINUTES}{" "}
+              分鐘緩衝）
+            </p>
+            <p className="mt-1 text-xs text-orange-800">
+              預設薪資工時對齊班表；若因公需計入提早時段，請點「核可提早工時」。
+            </p>
+          </div>
+        )}
+
+        <div className="grid gap-4 sm:grid-cols-4">
           <StatCard label="今日紀錄" value={`${records.length} 筆`} />
           <StatCard
             label="遲到"
             value={`${records.filter((r) => r.is_late).length} 筆`}
             tone="amber"
+          />
+          <StatCard
+            label="待審提早"
+            value={`${pendingEarlyReview} 筆`}
+            tone="orange"
           />
           <StatCard
             label="主管修正"
@@ -128,10 +220,25 @@ export function ClockRecordsPageClient({
                           {r.is_late && (
                             <Badge tone="amber">遲到 {r.late_minutes} 分</Badge>
                           )}
+                          {r.is_early_abnormal && (
+                            <Badge tone="orange">待審提早 {r.early_minutes} 分</Badge>
+                          )}
+                          {r.is_early && !r.is_early_abnormal && (
+                            <Badge tone="blue">
+                              提早 {r.early_minutes} 分·已對齊
+                            </Badge>
+                          )}
+                          {r.early_work_approved && (
+                            <Badge tone="green">已核可提早工時</Badge>
+                          )}
                           {r.is_manually_corrected && (
                             <Badge tone="violet">已修正</Badge>
                           )}
-                          {r.validation === "valid" && !r.is_late && !r.is_manually_corrected && (
+                          {r.validation === "valid" &&
+                            !r.is_late &&
+                            !r.is_manually_corrected &&
+                            !r.is_early &&
+                            !r.is_early_abnormal && (
                             <Badge tone="green">正常</Badge>
                           )}
                         </div>
@@ -147,12 +254,61 @@ export function ClockRecordsPageClient({
                           : "—"}
                       </td>
                       <td className="px-4 py-3 text-right">
-                        <button
-                          onClick={() => setEditing(r)}
-                          className="rounded-md px-3 py-1.5 text-sm font-medium text-blue-600 hover:bg-blue-50"
-                        >
-                          修正
-                        </button>
+                        <div className="flex flex-col items-end gap-1">
+                          {r.clock_type === "clock_in" &&
+                            (r.is_early_abnormal || (r.is_early && !r.early_reviewed_at)) && (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    startTransition(async () => {
+                                      const result = await reviewEarlyPunch({
+                                        recordId: r.id,
+                                        approved: false,
+                                      });
+                                      setMessage(
+                                        result.success
+                                          ? "已維持對齊班表起算"
+                                          : result.error ?? "操作失敗"
+                                      );
+                                      if (result.success) router.refresh();
+                                    });
+                                  }}
+                                  disabled={isPending}
+                                  className="rounded-md px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-100"
+                                >
+                                  維持對齊班表
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    startTransition(async () => {
+                                      const result = await reviewEarlyPunch({
+                                        recordId: r.id,
+                                        approved: true,
+                                      });
+                                      setMessage(
+                                        result.success
+                                          ? "已核可提早工時"
+                                          : result.error ?? "操作失敗"
+                                      );
+                                      if (result.success) router.refresh();
+                                    });
+                                  }}
+                                  disabled={isPending}
+                                  className="rounded-md px-2 py-1 text-xs font-medium text-emerald-700 hover:bg-emerald-50"
+                                >
+                                  核可提早工時
+                                </button>
+                              </>
+                            )}
+                          <button
+                            onClick={() => setEditing(r)}
+                            className="rounded-md px-3 py-1.5 text-sm font-medium text-blue-600 hover:bg-blue-50"
+                          >
+                            修正
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -304,14 +460,16 @@ function StatCard({
 }: {
   label: string;
   value: string;
-  tone?: "amber" | "violet";
+  tone?: "amber" | "violet" | "orange";
 }) {
   const styles =
     tone === "amber"
       ? "border-amber-200 bg-amber-50"
       : tone === "violet"
         ? "border-violet-200 bg-violet-50"
-        : "border-slate-200 bg-white";
+        : tone === "orange"
+          ? "border-orange-200 bg-orange-50"
+          : "border-slate-200 bg-white";
 
   return (
     <div className={`rounded-xl border px-4 py-5 shadow-sm ${styles}`}>
@@ -325,13 +483,15 @@ function Badge({
   tone,
   children,
 }: {
-  tone: "green" | "amber" | "violet";
+  tone: "green" | "amber" | "violet" | "orange" | "blue";
   children: React.ReactNode;
 }) {
   const styles = {
     green: "bg-green-100 text-green-700",
     amber: "bg-amber-100 text-amber-700",
     violet: "bg-violet-100 text-violet-700",
+    orange: "bg-orange-100 text-orange-700",
+    blue: "bg-blue-100 text-blue-700",
   };
   return (
     <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${styles[tone]}`}>

@@ -26,6 +26,9 @@ export interface Employee {
   hourly_wage: number;
   labor_insurance_self_pay: number;
   health_insurance_self_pay: number;
+  labor_insurance_employer_pay: number;
+  health_insurance_employer_pay: number;
+  labor_pension_employer_pay: number;
   weekly_rest_day: number;
   daily_work_hours: number;
   created_at: string;
@@ -45,6 +48,9 @@ export interface EmployeeFormData {
   hourly_wage: number;
   labor_insurance_self_pay: number;
   health_insurance_self_pay: number;
+  labor_insurance_employer_pay: number;
+  health_insurance_employer_pay: number;
+  labor_pension_employer_pay: number;
 }
 
 export const JOB_TITLE_LABELS: Record<JobTitle, string> = {
@@ -105,6 +111,9 @@ export const EMPTY_EMPLOYEE_FORM: EmployeeFormData = {
   hourly_wage: 0,
   labor_insurance_self_pay: 0,
   health_insurance_self_pay: 0,
+  labor_insurance_employer_pay: 0,
+  health_insurance_employer_pay: 0,
+  labor_pension_employer_pay: 0,
 };
 
 export function formatCurrency(amount: number): string {

@@ -4,6 +4,12 @@ import { revalidatePath } from "next/cache";
 import { supabase } from "@/lib/supabase";
 import { getDefaultClinic, taipeiToday } from "@/lib/clinic";
 import { applyClockRecordCorrection } from "@/lib/clock/correct-record";
+import { setEarlyWorkApproval } from "@/lib/clock/early-punch-review";
+import {
+  fetchPendingCorrectionRequests,
+  reviewCorrectionRequest,
+  type CorrectionRequestRow,
+} from "@/lib/clock/correction-request";
 import type { ClockType } from "@/lib/clock/session";
 
 export interface ClockRecordRow {
@@ -28,6 +34,14 @@ export interface ClockRecordRow {
   original_clocked_at: string | null;
   note: string | null;
   shift_name: string | null;
+  is_early: boolean;
+  early_minutes: number;
+  payable_clocked_at: string | null;
+  expected_at: string | null;
+  is_early_abnormal: boolean;
+  early_work_approved: boolean;
+  early_reviewed_by: string | null;
+  early_reviewed_at: string | null;
 }
 
 export async function fetchClockRecordsPageData(date?: string) {
@@ -51,11 +65,19 @@ export async function fetchClockRecordsPageData(date?: string) {
       source,
       is_late,
       late_minutes,
+      expected_at,
       is_manually_corrected,
       corrected_by,
       corrected_at,
       original_clocked_at,
       note,
+      is_early,
+      early_minutes,
+      payable_clocked_at,
+      is_early_abnormal,
+      early_work_approved,
+      early_reviewed_by,
+      early_reviewed_at,
       employees(name, employee_no),
       shift_assignments(shift_types(name))
     `
@@ -95,13 +117,31 @@ export async function fetchClockRecordsPageData(date?: string) {
       original_clocked_at: r.original_clocked_at,
       note: r.note,
       shift_name: shiftTypes?.name ?? null,
+      expected_at: r.expected_at ?? null,
+      is_early: Boolean(r.is_early),
+      early_minutes: Number(r.early_minutes ?? 0),
+      payable_clocked_at: r.payable_clocked_at ?? null,
+      is_early_abnormal: Boolean(r.is_early_abnormal),
+      early_work_approved: Boolean(r.early_work_approved),
+      early_reviewed_by: r.early_reviewed_by ?? null,
+      early_reviewed_at: r.early_reviewed_at ?? null,
     };
   });
+
+  const pendingEarlyReview = rows.filter(
+    (r) => r.is_early_abnormal && r.clock_type === "clock_in"
+  ).length;
+
+  const pendingCorrections = await fetchPendingCorrectionRequests(clinic.id).catch(
+    () => [] as CorrectionRequestRow[]
+  );
 
   return {
     clinic,
     date: targetDate,
     records: rows,
+    pendingEarlyReview,
+    pendingCorrections,
   };
 }
 
@@ -125,8 +165,53 @@ export async function correctClockRecord(input: {
   }
 
   revalidatePath("/clock-records");
+  revalidatePath("/payroll");
   return { success: true as const };
 }
+
+export async function reviewEarlyPunch(input: {
+  recordId: string;
+  approved: boolean;
+  reviewedBy?: string;
+}) {
+  const result = await setEarlyWorkApproval({
+    recordId: input.recordId,
+    approved: input.approved,
+    reviewedBy: input.reviewedBy?.trim() || "院長",
+  });
+
+  if (!result.success) {
+    return { success: false as const, error: result.error };
+  }
+
+  revalidatePath("/clock-records");
+  revalidatePath("/payroll");
+  return { success: true as const };
+}
+
+export async function reviewForgotClockRequest(input: {
+  requestId: string;
+  approved: boolean;
+  reviewedBy?: string;
+  reviewNote?: string;
+}) {
+  const result = await reviewCorrectionRequest({
+    requestId: input.requestId,
+    approved: input.approved,
+    reviewedBy: input.reviewedBy?.trim() || "院長",
+    reviewNote: input.reviewNote,
+  });
+
+  if (!result.success) {
+    return { success: false as const, error: result.error };
+  }
+
+  revalidatePath("/clock-records");
+  revalidatePath("/payroll");
+  return { success: true as const };
+}
+
+export type { CorrectionRequestRow };
 
 function parseJoin(raw: unknown): unknown {
   if (Array.isArray(raw)) return raw[0] ?? null;

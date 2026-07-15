@@ -63,6 +63,20 @@ export async function POST(request: NextRequest) {
         await replyWithClockGuide(event.replyToken, liffUrl, employeeName, preferredAction);
       } else if (text === "我的班表") {
         await handleScheduleQuery(event.replyToken, userId);
+      } else if (text.includes("請假") || text === "我要請假") {
+        await replyLineMessage(event.replyToken, [
+          {
+            type: "text",
+            text: `請點連結申請特休：\n${getLiffClockUrl(undefined, "leave")}`,
+          },
+        ]);
+      } else if (text.includes("忘記打卡") || text.includes("補登")) {
+        await replyLineMessage(event.replyToken, [
+          {
+            type: "text",
+            text: `請點連結送出補登申請，管理員審核後補登：\n${getLiffClockUrl(undefined, "forgot")}`,
+          },
+        ]);
       } else if (text === "選單" || text === "help" || text === "說明") {
         await replyWithClockGuide(event.replyToken, liffUrl);
       } else if (text.length > 0) {

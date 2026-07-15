@@ -9,6 +9,7 @@ import { calculateMonthlyOvertimePay } from "@/lib/payroll/overtime-pay";
 import { calculateYearEndBonus } from "@/lib/payroll/year-end-bonus";
 import { GOLDEN_SCHEDULE } from "@/lib/shift-templates";
 import type { ClockEvent, WorkShiftBlock } from "@/lib/compliance/types";
+import type { LeavePayrollSummary } from "@/lib/payroll/leave-deductions";
 
 export interface EmployeePayrollInput {
   id: string;
@@ -19,6 +20,9 @@ export interface EmployeePayrollInput {
   hourlyWage: number;
   laborInsuranceSelfPay: number;
   healthInsuranceSelfPay: number;
+  laborInsuranceEmployerPay: number;
+  healthInsuranceEmployerPay: number;
+  laborPensionEmployerPay: number;
 }
 
 export interface PayrollBonusInput {
@@ -29,6 +33,8 @@ export interface PayrollBonusInput {
   annualLeavePayout?: number;
   annualLeavePayoutDays?: number;
   annualLeaveRecordId?: string | null;
+  manualOvertimeHours?: number;
+  leavePayroll?: LeavePayrollSummary;
 }
 
 export interface PayrollLineItem {
@@ -38,6 +44,8 @@ export interface PayrollLineItem {
   hireDate: string;
   regularHours: number;
   overtimeHours: number;
+  /** 院長手動追加之臨時加班時數（因公延長） */
+  manualOvertimeHours: number;
   overtimeHours2Tier: number;
   basePay: number;
   baseSalary: number;
@@ -62,9 +70,23 @@ export interface PayrollLineItem {
   holidayDoublePay: number;
   /** 國定假日超過 8h 延長工時加班費 */
   holidayOvertimePay: number;
+  personalLeaveHours: number;
+  personalLeaveDeduction: number;
+  sickLeaveHours: number;
+  sickLeaveDeduction: number;
+  leaveDeductionTotal: number;
   nonRecurringTotal: number;
   laborInsurance: number;
   healthInsurance: number;
+  laborInsuranceEmployerPay: number;
+  healthInsuranceEmployerPay: number;
+  laborPensionEmployerPay: number;
+  /** 員工自付扣款合計 */
+  employeeDeductions: number;
+  /** 診所負擔規費（雇主勞健保 + 勞退） */
+  clinicBurdenTotal: number;
+  /** 應繳國家規費（個人 + 雇主勞健保 + 勞退） */
+  totalToStatePerEmployee: number;
   deductionTotal: number;
   recurringGross: number;
   grossPay: number;
@@ -85,6 +107,10 @@ function round(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
+export function roundMoney(n: number): number {
+  return round(n);
+}
+
 export function clampFlexibleBonus(amount: number): number {
   if (Number.isNaN(amount) || amount <= 0) return 0;
   return Math.min(
@@ -102,6 +128,11 @@ export function clampQuarterlyBonus(amount: number): number {
 }
 
 export function recalcPayrollTotals(item: PayrollLineItem): PayrollLineItem {
+  const totalOtHours = round(item.overtimeHours + (item.manualOvertimeHours ?? 0));
+  const otTier1 = Math.min(totalOtHours, 2);
+  const otTier2 = Math.max(0, totalOtHours - 2);
+  const overtimePay = calculateMonthlyOvertimePay(otTier1 + otTier2);
+
   const nonRecurringTotal = sumNonRecurringBonus({
     flexibleBonus: item.flexibleBonus,
     quarterlyBonus: item.quarterlyBonus,
@@ -109,13 +140,34 @@ export function recalcPayrollTotals(item: PayrollLineItem): PayrollLineItem {
     annualLeavePayout: item.annualLeavePayout,
     specialAttendancePay: item.specialAttendancePay,
   });
-  const recurringGross = item.basePay + item.overtimePay;
+  const recurringGross = item.basePay + overtimePay;
   const grossPay = recurringGross + nonRecurringTotal;
-  const netPay = grossPay - item.deductionTotal;
+  const employeeDeductions = round(item.laborInsurance + item.healthInsurance);
+  const leaveDeductionTotal = round(item.leaveDeductionTotal ?? 0);
+  const netPay = grossPay - employeeDeductions - leaveDeductionTotal;
+  const clinicBurdenTotal = round(
+    item.laborInsuranceEmployerPay +
+      item.healthInsuranceEmployerPay +
+      item.laborPensionEmployerPay
+  );
+  const totalToStatePerEmployee = round(
+    item.laborInsurance +
+      item.laborInsuranceEmployerPay +
+      item.healthInsurance +
+      item.healthInsuranceEmployerPay +
+      item.laborPensionEmployerPay
+  );
 
   return {
     ...item,
+    overtimePay,
+    overtimeHours2Tier: round(otTier2),
+    leaveDeductionTotal,
     nonRecurringTotal,
+    employeeDeductions,
+    deductionTotal: round(employeeDeductions + leaveDeductionTotal),
+    clinicBurdenTotal,
+    totalToStatePerEmployee,
     recurringGross: round(recurringGross),
     grossPay: round(grossPay),
     netPay: round(netPay),
@@ -124,10 +176,22 @@ export function recalcPayrollTotals(item: PayrollLineItem): PayrollLineItem {
       flexibleBonus: item.flexibleBonus,
       quarterlyBonus: item.quarterlyBonus,
       yearEndBonus: item.yearEndBonus,
+      manualOvertimeHours: item.manualOvertimeHours ?? 0,
+      personalLeaveHours: item.personalLeaveHours ?? 0,
+      personalLeaveDeduction: item.personalLeaveDeduction ?? 0,
+      sickLeaveHours: item.sickLeaveHours ?? 0,
+      sickLeaveDeduction: item.sickLeaveDeduction ?? 0,
+      leaveDeductionTotal,
       holidayDoublePay: item.holidayDoublePay,
       holidayOvertimePay: item.holidayOvertimePay,
       nonRecurringTotal,
       recurringGross: round(recurringGross),
+      employeeDeductions,
+      laborInsuranceEmployerPay: item.laborInsuranceEmployerPay,
+      healthInsuranceEmployerPay: item.healthInsuranceEmployerPay,
+      laborPensionEmployerPay: item.laborPensionEmployerPay,
+      clinicBurdenTotal,
+      totalToStatePerEmployee,
       insuranceBase: CLINIC_PAYROLL.INSURANCE_REPORT_BASE,
       taxForm50NonRecurring: nonRecurringTotal,
     },
@@ -205,7 +269,19 @@ export function calculateEmployeePayroll(
 
   const laborInsurance = round(employee.laborInsuranceSelfPay);
   const healthInsurance = round(employee.healthInsuranceSelfPay);
-  const deductionTotal = laborInsurance + healthInsurance;
+  const laborInsuranceEmployerPay = round(employee.laborInsuranceEmployerPay);
+  const healthInsuranceEmployerPay = round(employee.healthInsuranceEmployerPay);
+  const laborPensionEmployerPay = round(employee.laborPensionEmployerPay);
+
+  const leavePay = bonusInput.leavePayroll ?? {
+    personalLeaveHours: 0,
+    personalLeaveDeduction: 0,
+    sickLeaveHours: 0,
+    sickLeaveDeduction: 0,
+    leaveDeductionTotal: 0,
+    fullPayLeaveHours: 0,
+    leaveDetails: [],
+  };
 
   const item: PayrollLineItem = {
     employeeId: employee.id,
@@ -214,6 +290,7 @@ export function calculateEmployeePayroll(
     hireDate: employee.hireDate,
     regularHours: round(regularHours),
     overtimeHours: round(otTier1 + otTier2),
+    manualOvertimeHours: 0,
     overtimeHours2Tier: round(otTier2),
     basePay,
     baseSalary,
@@ -234,10 +311,21 @@ export function calculateEmployeePayroll(
     specialAttendancePay: holidayPay.totalPay,
     holidayDoublePay: holidayPay.doublePayTotal,
     holidayOvertimePay: holidayPay.overtimePayTotal,
+    personalLeaveHours: leavePay.personalLeaveHours,
+    personalLeaveDeduction: leavePay.personalLeaveDeduction,
+    sickLeaveHours: leavePay.sickLeaveHours,
+    sickLeaveDeduction: leavePay.sickLeaveDeduction,
+    leaveDeductionTotal: leavePay.leaveDeductionTotal,
     nonRecurringTotal: 0,
     laborInsurance,
     healthInsurance,
-    deductionTotal,
+    laborInsuranceEmployerPay,
+    healthInsuranceEmployerPay,
+    laborPensionEmployerPay,
+    employeeDeductions: 0,
+    clinicBurdenTotal: 0,
+    totalToStatePerEmployee: 0,
+    deductionTotal: 0,
     recurringGross: 0,
     grossPay: 0,
     netPay: 0,
@@ -269,9 +357,16 @@ export function calculateEmployeePayroll(
       otRate2: CLINIC_PAYROLL.OT_RATE_WEEKDAY_2,
       laborMode: "四週變形工時（黃金班表）",
       insuranceBase: CLINIC_PAYROLL.INSURANCE_REPORT_BASE,
+      personalLeaveHours: leavePay.personalLeaveHours,
+      personalLeaveDeduction: leavePay.personalLeaveDeduction,
+      sickLeaveHours: leavePay.sickLeaveHours,
+      sickLeaveDeduction: leavePay.sickLeaveDeduction,
+      leaveDeductionTotal: leavePay.leaveDeductionTotal,
+      fullPayLeaveHours: leavePay.fullPayLeaveHours,
     },
   };
 
+  item.manualOvertimeHours = bonusInput.manualOvertimeHours ?? 0;
   return recalcPayrollTotals(item);
 }
 
