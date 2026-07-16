@@ -53,6 +53,7 @@ export function EmployeeModal({ open, employee, onClose, onSuccess }: EmployeeMo
         labor_insurance_employer_pay: Number(employee.labor_insurance_employer_pay ?? 0),
         health_insurance_employer_pay: Number(employee.health_insurance_employer_pay ?? 0),
         labor_pension_employer_pay: Number(employee.labor_pension_employer_pay ?? 0),
+        is_clinic_admin: Boolean(employee.is_clinic_admin),
       });
     } else {
       setForm(EMPTY_EMPLOYEE_FORM);
@@ -154,6 +155,24 @@ export function EmployeeModal({ open, employee, onClose, onSuccess }: EmployeeMo
                   ))}
                 </select>
               </Field>
+              <div className="sm:col-span-2">
+                <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-emerald-200 bg-emerald-50/50 px-4 py-3">
+                  <input
+                    type="checkbox"
+                    checked={form.is_clinic_admin}
+                    onChange={(e) => updateField("is_clinic_admin", e.target.checked)}
+                    className="mt-0.5 h-4 w-4 rounded border-slate-300 text-emerald-600"
+                  />
+                  <span>
+                    <span className="block text-sm font-medium text-slate-800">
+                      LIFF 管理員權限
+                    </span>
+                    <span className="mt-0.5 block text-xs text-slate-500">
+                      勾選後，此員工在 LINE 打卡頁可使用「管理員」分頁（審核、排班、薪資等後台連結）
+                    </span>
+                  </span>
+                </label>
+              </div>
               <Field label="雇用型態">
                 <select
                   className={inputClass}

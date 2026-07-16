@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { resolveClinicAdmin } from "@/lib/employee/access";
+import { resolveLiffAdminAccess } from "@/lib/employee/liff-admin";
 import { supabase } from "@/lib/supabase";
 import { getDefaultClinic, taipeiToday } from "@/lib/clinic";
 import { DEFAULT_GEO_RADIUS_M } from "@/lib/geo/constants";
@@ -303,7 +303,7 @@ export async function GET(request: NextRequest) {
     getDefaultClinic(),
     supabase
       .from("employee_line_bindings")
-      .select("employee_id, employees(id, name, role)")
+      .select("employee_id, employees(id, name, role, employee_no, is_clinic_admin)")
       .eq("line_user_id", lineUserId)
       .eq("is_active", true)
       .maybeSingle(),
@@ -321,8 +321,8 @@ export async function GET(request: NextRequest) {
   let employees: { id: string; name: string; employee_no: string }[] | null = null;
 
   if (binding?.employee_id) {
-    const empMeta = getEmployeeMeta(binding.employees);
-    isClinicAdmin = resolveClinicAdmin(empMeta);
+    const adminAccess = await resolveLiffAdminAccess(lineUserId, binding);
+    isClinicAdmin = adminAccess.isClinicAdmin;
 
     const [assignTodayRes, assignRecentRes, clocksRes] = await Promise.all([
       supabase

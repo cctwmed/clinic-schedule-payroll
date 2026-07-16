@@ -47,7 +47,17 @@ function isMissingArrivalDateColumn(message: string): boolean {
   return message.includes("arrival_date") && message.includes("schema cache");
 }
 
-function toPayload(form: EmployeeFormData, clinicId: string, includeJobTitle = true, includeArrivalDate = true) {
+function isMissingClinicAdminColumn(message: string): boolean {
+  return message.includes("is_clinic_admin") && message.includes("schema cache");
+}
+
+function toPayload(
+  form: EmployeeFormData,
+  clinicId: string,
+  includeJobTitle = true,
+  includeArrivalDate = true,
+  includeClinicAdmin = true
+) {
   const payload: Record<string, unknown> = {
     clinic_id: clinicId,
     employee_no: form.employee_no.trim(),
@@ -70,6 +80,9 @@ function toPayload(form: EmployeeFormData, clinicId: string, includeJobTitle = t
   }
   if (includeJobTitle) {
     payload.job_title = form.job_title;
+  }
+  if (includeClinicAdmin) {
+    payload.is_clinic_admin = form.is_clinic_admin;
   }
   return payload;
 }
@@ -96,6 +109,10 @@ export async function createEmployee(form: EmployeeFormData) {
 
     if (error && isMissingJobTitleColumn(error.message) && isMissingArrivalDateColumn(error.message)) {
       ({ error } = await supabase.from("employees").insert(toPayload(form, clinicId, false, false)));
+    }
+
+    if (error && isMissingClinicAdminColumn(error.message)) {
+      ({ error } = await supabase.from("employees").insert(toPayload(form, clinicId, true, true, false)));
     }
 
     if (error) {
@@ -144,6 +161,13 @@ export async function updateEmployee(id: string, form: EmployeeFormData) {
       ({ error } = await supabase
         .from("employees")
         .update(toPayload(form, clinicId, false, false))
+        .eq("id", id));
+    }
+
+    if (error && isMissingClinicAdminColumn(error.message)) {
+      ({ error } = await supabase
+        .from("employees")
+        .update(toPayload(form, clinicId, true, true, false))
         .eq("id", id));
     }
 
