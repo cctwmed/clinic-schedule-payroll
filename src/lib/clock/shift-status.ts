@@ -4,6 +4,7 @@ import {
   type ExistingClock,
   type WorkAssignment,
 } from "@/lib/clock/session";
+import { getShiftDisplayName } from "@/lib/clock/shift-labels";
 
 export type ShiftClockPhase = "pending" | "working" | "done";
 
@@ -110,11 +111,12 @@ export function formatTimeRange(clockIn: string, clockOut: string): string {
 
 /** 多診時顯示標籤：單診用班別名，多診加序號 */
 export function formatSessionLabel(
-  detail: Pick<ShiftClockStatusDetail, "shiftName" | "sessionIndex">,
+  detail: Pick<ShiftClockStatusDetail, "shiftCode" | "shiftName" | "sessionIndex">,
   totalSessions: number
 ): string {
-  if (totalSessions <= 1) return detail.shiftName;
-  return `第 ${detail.sessionIndex} 診 · ${detail.shiftName}`;
+  const name = getShiftDisplayName(detail.shiftCode, detail.shiftName);
+  if (totalSessions <= 1) return name;
+  return `${name}（第 ${detail.sessionIndex} 診）`;
 }
 
 export function phaseLabel(phase: ShiftClockPhase): string {

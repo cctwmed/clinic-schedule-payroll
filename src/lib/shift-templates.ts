@@ -68,6 +68,17 @@ export function buildGoldenShiftSlots(): ShiftSlotDef[] {
       color_hex: "#8B5CF6",
       sort_order: 2,
     },
+    // 未來若啟用午診，取消註解並設定時段即可（shift-labels 已支援 AFTERNOON → 午診）
+    // {
+    //   code: "AFTERNOON",
+    //   name: "午診",
+    //   category: "afternoon",
+    //   default_clock_in: "13:00",
+    //   default_clock_out: "17:00",
+    //   planned_hours: GOLDEN_SCHEDULE.HALF_DAY_HOURS,
+    //   color_hex: "#10B981",
+    //   sort_order: 1.5,
+    // },
     {
       code: "STATUTORY",
       name: "例假",

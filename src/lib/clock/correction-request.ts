@@ -117,25 +117,46 @@ export async function reviewCorrectionRequest(input: {
   const clockedAt = toClockedAtIso(String(req.work_date), String(req.requested_time));
 
   let assignment: WorkAssignment | null = null;
-  const { data: assignRow } = await supabase
-    .from("shift_assignments")
-    .select("id, expected_clock_in, expected_clock_out, shift_types(code, name)")
-    .eq("employee_id", req.employee_id)
-    .eq("work_date", req.work_date)
-    .neq("status", "cancelled")
-    .order("expected_clock_in")
-    .limit(1)
-    .maybeSingle();
 
-  if (assignRow) {
-    const st = parseShiftJoin(assignRow.shift_types);
-    assignment = {
-      id: assignRow.id,
-      expected_clock_in: String(assignRow.expected_clock_in),
-      expected_clock_out: String(assignRow.expected_clock_out),
-      shift_code: st?.code ?? "",
-      shift_name: st?.name ?? "班別",
-    };
+  if (req.assignment_id) {
+    const { data: assignById } = await supabase
+      .from("shift_assignments")
+      .select("id, expected_clock_in, expected_clock_out, shift_types(code, name)")
+      .eq("id", req.assignment_id)
+      .maybeSingle();
+    if (assignById) {
+      const st = parseShiftJoin(assignById.shift_types);
+      assignment = {
+        id: assignById.id,
+        expected_clock_in: String(assignById.expected_clock_in),
+        expected_clock_out: String(assignById.expected_clock_out),
+        shift_code: st?.code ?? "",
+        shift_name: st?.name ?? "班別",
+      };
+    }
+  }
+
+  if (!assignment) {
+    const { data: assignRow } = await supabase
+      .from("shift_assignments")
+      .select("id, expected_clock_in, expected_clock_out, shift_types(code, name)")
+      .eq("employee_id", req.employee_id)
+      .eq("work_date", req.work_date)
+      .neq("status", "cancelled")
+      .order("expected_clock_in")
+      .limit(1)
+      .maybeSingle();
+
+    if (assignRow) {
+      const st = parseShiftJoin(assignRow.shift_types);
+      assignment = {
+        id: assignRow.id,
+        expected_clock_in: String(assignRow.expected_clock_in),
+        expected_clock_out: String(assignRow.expected_clock_out),
+        shift_code: st?.code ?? "",
+        shift_name: st?.name ?? "班別",
+      };
+    }
   }
 
   const newClockedAt = new Date(clockedAt);
@@ -159,7 +180,7 @@ export async function reviewCorrectionRequest(input: {
 
   const insertPayload: Record<string, unknown> = {
     employee_id: req.employee_id,
-    assignment_id: assignment?.id ?? null,
+    assignment_id: assignment?.id ?? req.assignment_id ?? null,
     clock_type: clockType,
     clocked_at: clockedAt,
     validation: "manual_override",

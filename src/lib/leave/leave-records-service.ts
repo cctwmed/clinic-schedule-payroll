@@ -39,6 +39,33 @@ function toTaipeiIso(workDate: string, time = "00:00"): string {
   return new Date(`${workDate}T${t}:00+08:00`).toISOString();
 }
 
+function formatTaipeiDate(date: Date): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Taipei",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(date);
+}
+
+function addDays(dateStr: string, days: number): string {
+  const base = new Date(`${dateStr}T12:00:00+08:00`);
+  base.setTime(base.getTime() + days * 86_400_000);
+  return formatTaipeiDate(base);
+}
+
+/** 列出起迄日之間每個曆日（含首尾） */
+export function listDatesInRange(startDate: string, endDate: string): string[] {
+  if (!startDate || !endDate || endDate < startDate) return [];
+  const dates: string[] = [];
+  let cursor = startDate;
+  while (cursor <= endDate) {
+    dates.push(cursor);
+    cursor = addDays(cursor, 1);
+  }
+  return dates;
+}
+
 function parseShiftJoin(raw: unknown): { code?: string; planned_hours?: number } | null {
   if (!raw) return null;
   const item = Array.isArray(raw) ? raw[0] : raw;
@@ -248,6 +275,104 @@ export async function createLeaveRequest(input: {
   }
 
   return { success: true as const, recordId: data.id };
+}
+
+/** 區間請假：依每日班表分別建立一筆 leave_record */
+export async function createLeaveRequestRange(input: {
+  clinicId: string;
+  employeeId: string;
+  leaveType: LeaveRecordType;
+  startDate: string;
+  endDate: string;
+  reason?: string;
+  autoApprove?: boolean;
+  reviewedBy?: string;
+}) {
+  const { clinicId, employeeId, leaveType, startDate, endDate, reason, autoApprove, reviewedBy } =
+    input;
+
+  const dates = listDatesInRange(startDate, endDate);
+  if (dates.length === 0) {
+    return { success: false as const, error: "結束日不可早於起始日" };
+  }
+  if (dates.length > 31) {
+    return { success: false as const, error: "單次請假區間最多 31 天，請分批申請" };
+  }
+
+  const { data: emp, error: empErr } = await supabase
+    .from("employees")
+    .select("id, name, arrival_date, hire_date")
+    .eq("id", employeeId)
+    .single();
+
+  if (empErr || !emp) {
+    return { success: false as const, error: "找不到員工" };
+  }
+
+  const arrival = resolveEmployeeArrivalDate(emp.arrival_date, emp.hire_date);
+  const dayHours: { date: string; hours: number }[] = [];
+
+  for (const date of dates) {
+    const hours = await resolveLeaveHoursFromSchedule(employeeId, date);
+    dayHours.push({ date, hours });
+  }
+
+  const totalHours = dayHours.reduce((s, d) => s + d.hours, 0);
+  const quota = await validateLeaveQuota({
+    employeeId,
+    leaveType,
+    totalHours,
+    arrivalDate: arrival,
+  });
+  if (!quota.ok) return { success: false as const, error: quota.error };
+
+  const recordIds: string[] = [];
+
+  for (const { date, hours } of dayHours) {
+    const payload = {
+      clinic_id: clinicId,
+      employee_id: employeeId,
+      leave_type: leaveType,
+      work_date: date,
+      start_time: toTaipeiIso(date, "00:00"),
+      end_time: toTaipeiIso(date, "23:59"),
+      total_hours: hours,
+      status: autoApprove ? ("approved" as const) : ("pending" as const),
+      reason: reason?.trim() || null,
+      reviewed_by: autoApprove ? reviewedBy?.trim() || "管理員" : null,
+      reviewed_at: autoApprove ? new Date().toISOString() : null,
+      review_note: autoApprove ? "管理員直接登記" : null,
+    };
+
+    const { data, error } = await supabase
+      .from("leave_records")
+      .insert(payload)
+      .select("id")
+      .single();
+
+    if (error) {
+      if (error.message.includes("leave_records")) {
+        return {
+          success: false as const,
+          error: "請假模組尚未啟用，請執行 migration 014",
+        };
+      }
+      return { success: false as const, error: error.message };
+    }
+
+    recordIds.push(data.id);
+  }
+
+  if (autoApprove) {
+    await applyLeaveApprovalSideEffects(employeeId, leaveType, totalHours, arrival);
+  }
+
+  return {
+    success: true as const,
+    recordIds,
+    dayCount: dates.length,
+    totalHours,
+  };
 }
 
 async function applyLeaveApprovalSideEffects(

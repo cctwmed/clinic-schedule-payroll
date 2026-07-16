@@ -46,7 +46,8 @@ export function LeavePageClient({
 }: LeavePageClientProps) {
   const router = useRouter();
   const [employeeId, setEmployeeId] = useState(summaries[0]?.employeeId ?? "");
-  const [workDate, setWorkDate] = useState(new Date().toISOString().slice(0, 10));
+  const [startDate, setStartDate] = useState(new Date().toISOString().slice(0, 10));
+  const [endDate, setEndDate] = useState(new Date().toISOString().slice(0, 10));
   const [leaveType, setLeaveType] = useState<LeaveRecordType>("special");
   const [reason, setReason] = useState("");
   const [message, setMessage] = useState<string | null>(null);
@@ -71,7 +72,8 @@ export function LeavePageClient({
     startTransition(async () => {
       const result = await submitLeaveRequest({
         employeeId,
-        workDate,
+        startDate,
+        endDate,
         leaveType,
         reason: reason.trim() || undefined,
         autoApprove: true,
@@ -147,7 +149,7 @@ export function LeavePageClient({
                   {stat?.count ?? 0} 筆
                 </p>
                 <p className="text-xs text-slate-500">{stat?.hours ?? 0} 小時</p>
-                <p className="mt-1 text-[11px] text-slate-400">{def.description}</p>
+                <p className="mt-1 text-[11px] text-slate-400">{def.payLabel}</p>
               </div>
             );
           })}
@@ -236,11 +238,25 @@ export function LeavePageClient({
             </select>
           </label>
           <label className="block text-sm">
-            <span className="mb-1 block font-medium text-slate-700">日期</span>
+            <span className="mb-1 block font-medium text-slate-700">起始日</span>
             <input
               type="date"
-              value={workDate}
-              onChange={(e) => setWorkDate(e.target.value)}
+              value={startDate}
+              onChange={(e) => {
+                setStartDate(e.target.value);
+                if (endDate < e.target.value) setEndDate(e.target.value);
+              }}
+              className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+              required
+            />
+          </label>
+          <label className="block text-sm">
+            <span className="mb-1 block font-medium text-slate-700">結束日</span>
+            <input
+              type="date"
+              value={endDate}
+              min={startDate}
+              onChange={(e) => setEndDate(e.target.value)}
               className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
               required
             />

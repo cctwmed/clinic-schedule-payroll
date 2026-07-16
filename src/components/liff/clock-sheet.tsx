@@ -1,8 +1,15 @@
 "use client";
 
 import { MapPin, X } from "lucide-react";
-import { ShiftSessionCards, buildActiveShiftHint } from "@/components/clock/shift-session-cards";
-import type { ShiftClockStatusDetail } from "@/lib/clock/shift-status";
+import {
+  formatShiftClockActionLabel,
+  getShiftDisplayName,
+} from "@/lib/clock/shift-labels";
+import {
+  formatClockTime,
+  formatTimeRange,
+  type ShiftClockStatusDetail,
+} from "@/lib/clock/shift-status";
 import type { WorkDutyStatus } from "@/lib/clock/work-status";
 
 interface ClockSheetProps {
@@ -18,11 +25,9 @@ interface ClockSheetProps {
   radiusM: number | null;
   withinRange: boolean;
   loading: boolean;
-  canClockIn: boolean;
-  canClockOut: boolean;
+  loadingTarget: string | null;
   onRefreshGps: () => void;
-  onClockIn: () => void;
-  onClockOut: () => void;
+  onClock: (clockType: "clock_in" | "clock_out", assignmentId: string) => void;
 }
 
 export function ClockSheet({
@@ -38,15 +43,13 @@ export function ClockSheet({
   radiusM,
   withinRange,
   loading,
-  canClockIn,
-  canClockOut,
+  loadingTarget,
   onRefreshGps,
-  onClockIn,
-  onClockOut,
+  onClock,
 }: ClockSheetProps) {
   if (!open) return null;
 
-  const activeHint = shiftStatuses.length > 0 ? buildActiveShiftHint(shiftStatuses) : null;
+  const clockReady = withinRange && !gpsLoading;
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col justify-end">
@@ -87,7 +90,9 @@ export function ClockSheet({
             </button>
           </div>
           {distanceM != null && radiusM != null && (
-            <p className={`mt-2 text-sm font-medium ${withinRange ? "text-emerald-600" : "text-red-600"}`}>
+            <p
+              className={`mt-2 text-sm font-medium ${withinRange ? "text-emerald-600" : "text-red-600"}`}
+            >
               {withinRange
                 ? `✓ 距離 ${distanceM}m（${radiusM}m 範圍內）`
                 : `✗ 距離 ${distanceM}m，超出 ${radiusM}m 範圍`}
@@ -96,48 +101,99 @@ export function ClockSheet({
           {gpsError && <p className="mt-1 text-xs text-red-600">{gpsError}</p>}
         </section>
 
-        {shiftStatuses.length > 0 && (
-          <div className="mb-4">
-            <ShiftSessionCards shifts={shiftStatuses} />
-          </div>
+        {shiftStatuses.length === 0 ? (
+          <p className="mb-4 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-6 text-center text-sm text-slate-500">
+            今日無排班，無法依診別打卡
+          </p>
+        ) : (
+          <ul className="mb-4 space-y-3">
+            {shiftStatuses.map((shift) => {
+              const label = getShiftDisplayName(shift.shiftCode, shift.shiftName);
+              const range = formatTimeRange(shift.expectedClockIn, shift.expectedClockOut);
+              const canIn = shift.nextAction === "clock_in" && clockReady;
+              const canOut = shift.nextAction === "clock_out" && clockReady;
+              const inKey = `${shift.assignmentId}-in`;
+              const outKey = `${shift.assignmentId}-out`;
+
+              return (
+                <li
+                  key={shift.assignmentId}
+                  className={`rounded-2xl border bg-white p-4 shadow-sm ${
+                    shift.isActive ? "border-emerald-300 ring-2 ring-emerald-100" : "border-slate-200"
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <div>
+                      <p className="font-semibold text-slate-900">{label}</p>
+                      <p className="text-xs text-slate-500">班表 {range}</p>
+                    </div>
+                    {shift.isActive && (
+                      <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-medium text-emerald-700">
+                        建議
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="mt-2 grid grid-cols-2 gap-2 text-xs text-slate-600">
+                    <p>
+                      上班 {formatClockTime(shift.clockInAt)}
+                      {!shift.clockInAt && shift.nextAction === "clock_in" && (
+                        <span className="text-blue-600"> · 待打</span>
+                      )}
+                    </p>
+                    <p>
+                      下班 {formatClockTime(shift.clockOutAt)}
+                      {!shift.clockOutAt && shift.nextAction === "clock_out" && (
+                        <span className="text-blue-600"> · 待打</span>
+                      )}
+                    </p>
+                  </div>
+
+                  <div className="mt-3 grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => onClock("clock_in", shift.assignmentId)}
+                      disabled={!canIn || loading}
+                      className={`rounded-xl py-3 text-xs font-bold transition-all ${
+                        canIn
+                          ? "bg-emerald-600 text-white shadow-md"
+                          : "cursor-not-allowed bg-slate-100 text-slate-400"
+                      }`}
+                    >
+                      {loading && loadingTarget === inKey
+                        ? "處理中…"
+                        : formatShiftClockActionLabel(shift.shiftCode, shift.shiftName, "clock_in")}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onClock("clock_out", shift.assignmentId)}
+                      disabled={!canOut || loading}
+                      className={`rounded-xl py-3 text-xs font-bold transition-all ${
+                        canOut
+                          ? "bg-orange-500 text-white shadow-md"
+                          : "cursor-not-allowed bg-slate-100 text-slate-400"
+                      }`}
+                    >
+                      {loading && loadingTarget === outKey
+                        ? "處理中…"
+                        : formatShiftClockActionLabel(shift.shiftCode, shift.shiftName, "clock_out")}
+                    </button>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
         )}
 
-        {duty !== "all_done" && (
-          <p className="mb-3 text-center text-xs text-slate-500">
-            {activeHint ?? (duty === "on_duty" ? "請點選下班打卡" : "請點選上班打卡")}
+        {!clockReady && shiftStatuses.length > 0 && (
+          <p className="mb-3 text-center text-xs text-amber-700">
+            請先完成 GPS 定位並進入診所範圍後，再選擇診別打卡
           </p>
         )}
 
-        <div className="grid grid-cols-2 gap-3">
-          <button
-            type="button"
-            onClick={onClockIn}
-            disabled={!canClockIn || loading}
-            className={`rounded-2xl py-4 text-base font-bold shadow-lg transition-all ${
-              canClockIn
-                ? "bg-emerald-600 text-white shadow-emerald-200"
-                : "cursor-not-allowed bg-slate-200 text-slate-400"
-            }`}
-          >
-            {loading && canClockIn ? "處理中…" : "上班打卡"}
-          </button>
-          <button
-            type="button"
-            onClick={onClockOut}
-            disabled={!canClockOut || loading}
-            className={`rounded-2xl py-4 text-base font-bold shadow-lg transition-all ${
-              canClockOut
-                ? "bg-orange-500 text-white shadow-orange-200"
-                : "cursor-not-allowed bg-slate-200 text-slate-400"
-            }`}
-          >
-            {loading && canClockOut ? "處理中…" : "下班打卡"}
-          </button>
-        </div>
-
         {duty === "all_done" && (
-          <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 py-3 text-center text-sm font-medium text-emerald-800">
-            今日所有班別打卡已完成 ✓
+          <div className="rounded-2xl border border-emerald-200 bg-emerald-50 py-3 text-center text-sm font-medium text-emerald-800">
+            今日各診別打卡均已完成 ✓
           </div>
         )}
       </div>

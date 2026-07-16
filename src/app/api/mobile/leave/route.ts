@@ -3,6 +3,7 @@ import { getDefaultClinic } from "@/lib/clinic";
 import { supabase } from "@/lib/supabase";
 import {
   createLeaveRequest,
+  createLeaveRequestRange,
   fetchLeaveRecords,
   syncEmployeeSpecialLeaveBalance,
 } from "@/lib/leave/leave-records-service";
@@ -84,6 +85,7 @@ export async function GET(request: NextRequest) {
       leaveTypes: LEAVE_TYPE_OPTIONS.map((t) => ({
         code: t.code,
         label: t.label,
+        payLabel: t.payLabel,
         description: t.description,
       })),
     });
@@ -98,14 +100,19 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { lineUserId, workDate, leaveType, reason } = body as {
+    const { lineUserId, workDate, startDate, endDate, leaveType, reason } = body as {
       lineUserId?: string;
       workDate?: string;
+      startDate?: string;
+      endDate?: string;
       leaveType?: LeaveRecordType;
       reason?: string;
     };
 
-    if (!lineUserId || !workDate || !leaveType) {
+    const rangeStart = startDate ?? workDate;
+    const rangeEnd = endDate ?? startDate ?? workDate;
+
+    if (!lineUserId || !rangeStart || !leaveType) {
       return NextResponse.json({ error: "缺少必要參數" }, { status: 400 });
     }
 
@@ -115,22 +122,38 @@ export async function POST(request: NextRequest) {
     }
 
     const clinic = await getDefaultClinic();
-    const result = await createLeaveRequest({
-      clinicId: clinic.id,
-      employeeId,
-      leaveType,
-      workDate,
-      reason,
-      autoApprove: false,
-    });
+
+    const result =
+      rangeEnd && rangeEnd !== rangeStart
+        ? await createLeaveRequestRange({
+            clinicId: clinic.id,
+            employeeId,
+            leaveType,
+            startDate: rangeStart,
+            endDate: rangeEnd,
+            reason,
+            autoApprove: false,
+          })
+        : await createLeaveRequest({
+            clinicId: clinic.id,
+            employeeId,
+            leaveType,
+            workDate: rangeStart,
+            reason,
+            autoApprove: false,
+          });
 
     if (!result.success) {
       return NextResponse.json({ error: result.error }, { status: 400 });
     }
 
+    const dayCount = "dayCount" in result ? result.dayCount : 1;
+    const rangeNote =
+      dayCount > 1 ? `（${rangeStart}～${rangeEnd}，共 ${dayCount} 天）` : "";
+
     return NextResponse.json({
       success: true,
-      message: `${leaveTypeLabel(leaveType)}申請已送出，待管理員核准後納入薪資計算`,
+      message: `${leaveTypeLabel(leaveType)}申請已送出${rangeNote}，待管理員核准後納入薪資計算`,
     });
   } catch (err) {
     return NextResponse.json(

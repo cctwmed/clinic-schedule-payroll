@@ -8,6 +8,7 @@ import { ModeTabs } from "@/components/liff/mode-tabs";
 import type { LiffMode } from "@/components/liff/mode-switcher";
 import { StatusCard } from "@/components/liff/status-card";
 import { getDistanceMeters } from "@/lib/geo/haversine";
+import { getShiftDisplayName } from "@/lib/clock/shift-labels";
 import type { WorkDutyStatus } from "@/lib/clock/work-status";
 
 type ClockType = "clock_in" | "clock_out";
@@ -102,6 +103,7 @@ export function ClockHomeTab({
   const [statusLoading, setStatusLoading] = useState(true);
   const [clockSheetOpen, setClockSheetOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [loadingTarget, setLoadingTarget] = useState<string | null>(null);
 
   const loadStatus = useCallback(async () => {
     setStatusLoading(true);
@@ -169,8 +171,6 @@ export function ClockHomeTab({
     distanceM != null && status?.clinic.radiusM != null && distanceM <= status.clinic.radiusM;
   const clockReady = !!gps && withinRange && !loading;
   const duty = status?.workDutyStatus ?? "off_duty";
-  const canClockIn = duty === "off_duty" && clockReady;
-  const canClockOut = duty === "on_duty" && clockReady;
 
   async function handleBind() {
     if (!selectedEmployeeId) return;
@@ -192,7 +192,10 @@ export function ClockHomeTab({
     }
   }
 
-  async function handleClock(clockType: ClockType) {
+  async function handleClock(
+    clockType: ClockType,
+    assignmentId: string
+  ) {
     if (!gps) {
       setError("請先取得 GPS 定位");
       getLocation();
@@ -202,7 +205,9 @@ export function ClockHomeTab({
       setError("您目前不在診所範圍內");
       return;
     }
+    const targetKey = `${assignmentId}-${clockType === "clock_in" ? "in" : "out"}`;
     setLoading(true);
+    setLoadingTarget(targetKey);
     setError(null);
     setMessage(null);
     try {
@@ -213,6 +218,7 @@ export function ClockHomeTab({
           lineUserId,
           employeeId: status?.binding?.employeeId ?? selectedEmployeeId,
           clockType,
+          assignmentId,
           latitude: gps.lat,
           longitude: gps.lng,
           accuracy: gps.accuracy,
@@ -226,6 +232,7 @@ export function ClockHomeTab({
       setError(err instanceof Error ? err.message : "打卡失敗");
     } finally {
       setLoading(false);
+      setLoadingTarget(null);
     }
   }
 
@@ -249,15 +256,33 @@ export function ClockHomeTab({
   }
 
   const todayClocks = status?.todayClocks ?? [];
-  const lastClockIn = [...todayClocks].reverse().find((c) => c.clock_type === "clock_in");
-  const lastClockOut = [...todayClocks].reverse().find((c) => c.clock_type === "clock_out");
+  const shiftStatuses = status?.shiftStatuses ?? [];
+  const lastEvent = (() => {
+    const events: { type: "in" | "out"; at: string; assignmentId?: string | null }[] = [];
+    for (const c of todayClocks) {
+      if (c.clock_type === "clock_in" || c.clock_type === "clock_out") {
+        events.push({
+          type: c.clock_type === "clock_in" ? "in" : "out",
+          at: c.clocked_at,
+          assignmentId: c.assignment_id,
+        });
+      }
+    }
+    return events.sort((a, b) => b.at.localeCompare(a.at))[0];
+  })();
+
   const hasClocked = todayClocks.length > 0;
 
   let headline = "尚未打卡";
-  if (lastClockOut) {
-    headline = `下班打卡 ${formatClockTime(lastClockOut.clocked_at)}`;
-  } else if (lastClockIn) {
-    headline = `上班打卡 ${formatClockTime(lastClockIn.clocked_at)}`;
+  if (lastEvent) {
+    const shift = shiftStatuses.find((s) => s.assignmentId === lastEvent.assignmentId);
+    const session = shift
+      ? getShiftDisplayName(shift.shiftCode, shift.shiftName)
+      : null;
+    const action = lastEvent.type === "in" ? "上班打卡" : "下班打卡";
+    headline = session
+      ? `${session} ${action} ${formatClockTime(lastEvent.at)}`
+      : `${action} ${formatClockTime(lastEvent.at)}`;
   }
 
   const dateLabel = status?.today ? formatTaipeiDate(status.today) : "—";
@@ -377,11 +402,9 @@ export function ClockHomeTab({
           radiusM={status.clinic.radiusM}
           withinRange={!!withinRange}
           loading={loading}
-          canClockIn={canClockIn}
-          canClockOut={canClockOut}
+          loadingTarget={loadingTarget}
           onRefreshGps={getLocation}
-          onClockIn={() => handleClock("clock_in")}
-          onClockOut={() => handleClock("clock_out")}
+          onClock={handleClock}
         />
       )}
 

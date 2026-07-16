@@ -8,8 +8,10 @@ import {
 } from "@/lib/leave/service";
 import {
   createLeaveRequest,
+  createLeaveRequestRange,
   fetchEmployeeLeaveBalances,
   fetchLeaveRecords,
+  listDatesInRange,
   reviewLeaveRecord,
   type LeaveRecordRow,
 } from "@/lib/leave/leave-records-service";
@@ -41,31 +43,54 @@ export async function fetchLeavePageData(year?: number, month?: number) {
 
 export async function submitLeaveRequest(input: {
   employeeId: string;
-  workDate: string;
+  workDate?: string;
+  startDate?: string;
+  endDate?: string;
   leaveType: LeaveRecordType;
   reason?: string;
   autoApprove?: boolean;
 }) {
-  if (!input.employeeId || !input.workDate || !input.leaveType) {
+  const rangeStart = input.startDate ?? input.workDate;
+  const rangeEnd = input.endDate ?? rangeStart;
+
+  if (!input.employeeId || !rangeStart || !input.leaveType) {
     return { success: false as const, error: "請填寫完整請假資料" };
+  }
+  if (rangeEnd && rangeEnd < rangeStart) {
+    return { success: false as const, error: "結束日不可早於起始日" };
   }
 
   try {
     const clinic = await getDefaultClinic();
-    const result = await createLeaveRequest({
-      clinicId: clinic.id,
-      employeeId: input.employeeId,
-      leaveType: input.leaveType,
-      workDate: input.workDate,
-      reason: input.reason,
-      autoApprove: input.autoApprove ?? false,
-      reviewedBy: "院長",
-    });
+    const useRange = rangeEnd && rangeEnd !== rangeStart;
+
+    const result = useRange
+      ? await createLeaveRequestRange({
+          clinicId: clinic.id,
+          employeeId: input.employeeId,
+          leaveType: input.leaveType,
+          startDate: rangeStart,
+          endDate: rangeEnd,
+          reason: input.reason,
+          autoApprove: input.autoApprove ?? false,
+          reviewedBy: "院長",
+        })
+      : await createLeaveRequest({
+          clinicId: clinic.id,
+          employeeId: input.employeeId,
+          leaveType: input.leaveType,
+          workDate: rangeStart,
+          reason: input.reason,
+          autoApprove: input.autoApprove ?? false,
+          reviewedBy: "院長",
+        });
 
     if (!result.success) return result;
 
     if (input.leaveType === "special" && input.autoApprove) {
-      await assignAnnualLeaveDay(input.employeeId, input.workDate, clinic.id).catch(() => null);
+      for (const date of listDatesInRange(rangeStart, rangeEnd ?? rangeStart)) {
+        await assignAnnualLeaveDay(input.employeeId, date, clinic.id).catch(() => null);
+      }
     }
 
     revalidatePath("/leave");

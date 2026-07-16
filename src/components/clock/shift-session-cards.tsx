@@ -8,6 +8,7 @@ import {
   type ShiftClockPhase,
   type ShiftClockStatusDetail,
 } from "@/lib/clock/shift-status";
+import { getShiftDisplayName } from "@/lib/clock/shift-labels";
 
 interface ShiftSessionCardsProps {
   shifts: ShiftClockStatusDetail[];
@@ -49,6 +50,7 @@ function ShiftSessionCard({
   totalSessions: number;
 }) {
   const label = formatSessionLabel(shift, totalSessions);
+  const shortLabel = getShiftDisplayName(shift.shiftCode, shift.shiftName);
   const range = formatTimeRange(shift.expectedClockIn, shift.expectedClockOut);
 
   const borderStyle = shift.isActive
@@ -72,6 +74,9 @@ function ShiftSessionCard({
               </span>
             )}
             <p className="font-semibold text-slate-800">{label}</p>
+            {totalSessions > 1 && (
+              <p className="text-[10px] text-slate-400">{shortLabel}</p>
+            )}
           </div>
           <p className="mt-0.5 text-xs text-slate-500">班表 {range}</p>
         </div>

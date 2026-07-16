@@ -138,13 +138,7 @@ export function resolveClockOutAssignment(
     const hasIn = hasClockForAssignment(clocks, assignment.id, "clock_in");
     const hasOut = hasClockForAssignment(clocks, assignment.id, "clock_out");
     if (hasIn && !hasOut) {
-      return {
-        assignmentId: assignment.id,
-        expectedAt: null,
-        isLate: false,
-        lateMinutes: 0,
-        shiftLabel: `${assignment.shift_name} ${assignment.expected_clock_out.slice(0, 5)}`,
-      };
+      return buildClockMatchForAssignment(assignment, "clock_out", null);
     }
   }
 
@@ -155,6 +149,70 @@ export function resolveClockOutAssignment(
     lateMinutes: 0,
     shiftLabel: work[0]?.shift_name ?? null,
   };
+}
+
+function buildClockMatchForAssignment(
+  assignment: WorkAssignment,
+  clockType: "clock_in" | "clock_out",
+  workDate: string | null,
+  clockedAt?: Date
+): ClockMatchResult {
+  if (clockType === "clock_out") {
+    return {
+      assignmentId: assignment.id,
+      expectedAt: null,
+      isLate: false,
+      lateMinutes: 0,
+      shiftLabel: `${assignment.shift_name} ${assignment.expected_clock_out.slice(0, 5)}`,
+    };
+  }
+
+  const date = workDate ?? getTaipeiTimeParts(clockedAt ?? new Date()).date;
+  const expectedAt = toTaipeiDateTime(date, assignment.expected_clock_in);
+  const at = clockedAt ?? new Date();
+  const isLate = at > expectedAt;
+  const lateMinutes = isLate
+    ? Math.max(0, Math.floor((at.getTime() - expectedAt.getTime()) / 60000))
+    : 0;
+
+  return {
+    assignmentId: assignment.id,
+    expectedAt: expectedAt.toISOString(),
+    isLate,
+    lateMinutes,
+    shiftLabel: `${assignment.shift_name} ${assignment.expected_clock_in.slice(0, 5)}`,
+  };
+}
+
+/** 指定診別（assignment）打卡，供 LIFF 早診／晚診分開操作 */
+export function resolveClockForAssignment(
+  workDate: string,
+  assignments: WorkAssignment[],
+  clocks: ExistingClock[],
+  assignmentId: string,
+  clockType: "clock_in" | "clock_out",
+  clockedAt: Date
+): ClockMatchResult | { error: string } {
+  const work = filterWorkAssignments(assignments);
+  const assignment = work.find((a) => a.id === assignmentId);
+  if (!assignment) {
+    return { error: "找不到所選診別，請確認當日班表" };
+  }
+
+  if (clockType === "clock_in") {
+    if (hasClockForAssignment(clocks, assignmentId, "clock_in")) {
+      return { error: `${assignment.shift_name} 已打過上班卡` };
+    }
+    return buildClockMatchForAssignment(assignment, "clock_in", workDate, clockedAt);
+  }
+
+  if (!hasClockForAssignment(clocks, assignmentId, "clock_in")) {
+    return { error: `${assignment.shift_name} 尚未打上班卡，無法下班打卡` };
+  }
+  if (hasClockForAssignment(clocks, assignmentId, "clock_out")) {
+    return { error: `${assignment.shift_name} 已打過下班卡` };
+  }
+  return buildClockMatchForAssignment(assignment, "clock_out", workDate);
 }
 
 export function evaluateLateForManualCorrection(

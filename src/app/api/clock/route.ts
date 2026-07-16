@@ -19,6 +19,7 @@ import {
 } from "@/lib/clock/early-punch";
 import {
   filterWorkAssignments,
+  resolveClockForAssignment,
   resolveClockInAssignment,
   resolveClockOutAssignment,
   resolveDefaultClockInLate,
@@ -27,6 +28,7 @@ import {
   type ExistingClock,
   type WorkAssignment,
 } from "@/lib/clock/session";
+import { getShiftDisplayName } from "@/lib/clock/shift-labels";
 
 /** 打卡有效半徑以資料庫 clinics.geo_radius_m 為準 */
 
@@ -58,6 +60,7 @@ export async function POST(request: NextRequest) {
       lineUserId,
       employeeId,
       clockType,
+      assignmentId,
       latitude,
       longitude,
       accuracy,
@@ -65,6 +68,7 @@ export async function POST(request: NextRequest) {
       lineUserId?: string;
       employeeId?: string;
       clockType?: ClockType;
+      assignmentId?: string;
       latitude?: number;
       longitude?: number;
       accuracy?: number;
@@ -148,7 +152,20 @@ export async function POST(request: NextRequest) {
     const clocks = (existingClocks ?? []) as ExistingClock[];
 
     let match;
-    if (clockType === "clock_in") {
+    if (assignmentId && (clockType === "clock_in" || clockType === "clock_out")) {
+      const explicit = resolveClockForAssignment(
+        today,
+        assignments,
+        clocks,
+        assignmentId,
+        clockType,
+        clockedAt
+      );
+      if ("error" in explicit) {
+        return NextResponse.json({ error: explicit.error }, { status: 400 });
+      }
+      match = explicit;
+    } else if (clockType === "clock_in") {
       if (workAssignments.length === 0) {
         match = resolveDefaultClockInLate(today, clockedAt);
       } else {
@@ -238,7 +255,16 @@ export async function POST(request: NextRequest) {
       break_end: "休息結束",
     };
 
-    let message = `${clockLabels[clockType]}打卡成功！`;
+    const matchedAssignment = match.assignmentId
+      ? workAssignments.find((a) => a.id === match.assignmentId)
+      : null;
+    const sessionLabel = matchedAssignment
+      ? getShiftDisplayName(matchedAssignment.shift_code, matchedAssignment.shift_name)
+      : null;
+
+    let message = sessionLabel
+      ? `${sessionLabel} ${clockLabels[clockType]}打卡成功！`
+      : `${clockLabels[clockType]}打卡成功！`;
     if (match.isLate) {
       message += `（遲到 ${match.lateMinutes} 分鐘，已註記）`;
     }
