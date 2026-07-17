@@ -1,9 +1,11 @@
 import { resolvePayableClockIn } from "@/lib/clock/early-punch";
 import {
   FLEXIBLE_LABOR,
+  addDaysTaipei,
   getDayOfWeekTaipei,
   getExpectedDailyHours,
   isDualClinicDay,
+  iterateFixedCycles,
 } from "@/lib/shift-templates";
 import type {
   ClockEvent,
@@ -17,6 +19,8 @@ const {
   TWO_WEEK_DAYS,
   MAX_REGULAR_HOURS_PER_CYCLE,
   MIN_STATUTORY_DAYS_PER_TWO_WEEKS,
+  MIN_STATUTORY_DAYS_PER_CYCLE,
+  MIN_REST_DAYS_PER_CYCLE,
   MIN_OFF_DAYS_PER_CYCLE,
   MAX_CONSECUTIVE_WORK_DAYS,
   MIN_REST_BETWEEN_SHIFTS_HOURS,
@@ -31,19 +35,8 @@ const NON_WORK_SHIFT_CODES = new Set([
   "CLOSED",
 ]);
 
-function formatTaipeiDate(date: Date): string {
-  return new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Asia/Taipei",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(date);
-}
-
 function addDays(dateStr: string, days: number): string {
-  const base = new Date(`${dateStr}T12:00:00+08:00`);
-  base.setTime(base.getTime() + days * 86_400_000);
-  return formatTaipeiDate(base);
+  return addDaysTaipei(dateStr, days);
 }
 
 function hoursBetween(endIso: string, startIso: string): number {
@@ -139,6 +132,26 @@ function isWorkDay(
   );
 }
 
+/** 該員工在週期內是否有任何班表／假別資料（避免空窗誤報） */
+function hasScheduleActivityInWindow(
+  employeeId: string,
+  windowStart: string,
+  windowEnd: string,
+  shifts: WorkShiftBlock[],
+  dayOffs: DayOffRecord[]
+): boolean {
+  return (
+    shifts.some(
+      (s) =>
+        s.employeeId === employeeId && s.date >= windowStart && s.date <= windowEnd
+    ) ||
+    dayOffs.some(
+      (d) =>
+        d.employeeId === employeeId && d.date >= windowStart && d.date <= windowEnd
+    )
+  );
+}
+
 function checkConsecutiveWorkDays(
   employeeId: string,
   employeeName: string | undefined,
@@ -159,7 +172,7 @@ function checkConsecutiveWorkDays(
         issues.push({
           ruleCode: "MAX_CONSECUTIVE_WORK_DAYS",
           severity: "violation",
-          message: `${employeeName ?? "員工"} ${streakStart}～${cursor} 連續工作 ${streak} 天，超過 ${MAX_CONSECUTIVE_WORK_DAYS} 天上限（需有例假）`,
+          message: `${employeeName ?? "員工"} ${streakStart}～${cursor} 連續工作 ${streak} 天，超過四週變形工時 ${MAX_CONSECUTIVE_WORK_DAYS} 天上限（最長可連上 12 天）`,
           employeeId,
           employeeName,
           date: cursor,
@@ -178,43 +191,53 @@ function checkConsecutiveWorkDays(
   return issues;
 }
 
+/**
+ * 固定 2 週（14 日）週期：至少 2 天例假。
+ * 例假可於 2 週內調移；禁止用滾動日窗卡死合法班表。
+ */
 function checkTwoWeekStatutoryWindows(
   employeeId: string,
   employeeName: string | undefined,
   periodStart: string,
   periodEnd: string,
-  dayOffs: DayOffRecord[]
+  dayOffs: DayOffRecord[],
+  shifts: WorkShiftBlock[]
 ): ComplianceIssue[] {
   const issues: ComplianceIssue[] = [];
-  let cursor = periodStart;
 
-  while (cursor <= periodEnd) {
-    const windowEnd = addDays(cursor, TWO_WEEK_DAYS - 1);
-    if (windowEnd > periodEnd) break;
+  for (const { start, end } of iterateFixedCycles(
+    periodStart,
+    periodEnd,
+    TWO_WEEK_DAYS
+  )) {
+    // 僅檢查資料完整涵蓋的固定週期
+    if (start < periodStart || end > periodEnd) continue;
+    if (!hasScheduleActivityInWindow(employeeId, start, end, shifts, dayOffs)) {
+      continue;
+    }
 
     const statutoryCount = dayOffs.filter(
       (d) =>
         d.employeeId === employeeId &&
         d.type === "statutory" &&
-        d.date >= cursor &&
-        d.date <= windowEnd
+        d.date >= start &&
+        d.date <= end
     ).length;
 
     if (statutoryCount < MIN_STATUTORY_DAYS_PER_TWO_WEEKS) {
       issues.push({
         ruleCode: "STATUTORY_DAYS_TWO_WEEKS",
         severity: "warning",
-        message: `${employeeName ?? "員工"} ${cursor}～${windowEnd} 僅 ${statutoryCount} 天例假，需 ≥ ${MIN_STATUTORY_DAYS_PER_TWO_WEEKS} 天`,
+        message: `${employeeName ?? "員工"} 固定兩週週期 ${start}～${end} 僅 ${statutoryCount} 天例假，需 ≥ ${MIN_STATUTORY_DAYS_PER_TWO_WEEKS} 天`,
         employeeId,
         employeeName,
-        date: cursor,
+        date: start,
+        windowEnd: end,
         actualValue: statutoryCount,
         thresholdValue: MIN_STATUTORY_DAYS_PER_TWO_WEEKS,
         unit: "days",
       });
     }
-
-    cursor = addDays(cursor, 1);
   }
 
   return issues;
@@ -265,6 +288,9 @@ function checkDailyOvertime(
   return issues;
 }
 
+/**
+ * 固定 4 週（28 日）週期：工時 ≤160h；例假 ≥4、休息日 ≥4、合計 ≥8。
+ */
 function checkFourWeekWindows(
   employeeId: string,
   employeeName: string | undefined,
@@ -275,26 +301,22 @@ function checkFourWeekWindows(
   clocks: ClockEvent[]
 ): ComplianceIssue[] {
   const issues: ComplianceIssue[] = [];
-  let cursor = periodStart;
 
-  while (cursor <= periodEnd) {
-    const windowEnd = addDays(cursor, CYCLE_DAYS - 1);
-    if (windowEnd > periodEnd) break;
+  for (const { start, end } of iterateFixedCycles(periodStart, periodEnd, CYCLE_DAYS)) {
+    if (start < periodStart || end > periodEnd) continue;
+    if (!hasScheduleActivityInWindow(employeeId, start, end, shifts, dayOffs)) {
+      continue;
+    }
 
     const windowOffs = dayOffs.filter(
-      (d) => d.employeeId === employeeId && d.date >= cursor && d.date <= windowEnd
+      (d) => d.employeeId === employeeId && d.date >= start && d.date <= end
     );
 
     const dates = new Set(
       shifts
-        .filter((s) => s.employeeId === employeeId && s.date >= cursor && s.date <= windowEnd)
+        .filter((s) => s.employeeId === employeeId && s.date >= start && s.date <= end)
         .map((s) => s.date)
     );
-
-    if (dates.size === 0 && windowOffs.length === 0) {
-      cursor = addDays(cursor, CYCLE_DAYS);
-      continue;
-    }
 
     let regularTotal = 0;
     for (const date of dates) {
@@ -305,10 +327,11 @@ function checkFourWeekWindows(
       issues.push({
         ruleCode: "FOUR_WEEK_TOTAL_HOURS",
         severity: "violation",
-        message: `${employeeName ?? "員工"} ${cursor}～${windowEnd} 四週工時 ${regularTotal.toFixed(1)}h，超過 ${MAX_REGULAR_HOURS_PER_CYCLE}h`,
+        message: `${employeeName ?? "員工"} 固定四週週期 ${start}～${end} 工時 ${regularTotal.toFixed(1)}h，超過 ${MAX_REGULAR_HOURS_PER_CYCLE}h`,
         employeeId,
         employeeName,
-        date: cursor,
+        date: start,
+        windowEnd: end,
         actualValue: regularTotal,
         thresholdValue: MAX_REGULAR_HOURS_PER_CYCLE,
         unit: "hours",
@@ -318,21 +341,51 @@ function checkFourWeekWindows(
     const statutoryCount = windowOffs.filter((d) => d.type === "statutory").length;
     const restCount = windowOffs.filter((d) => d.type === "rest").length;
     const offDaysTotal = statutoryCount + restCount;
+
+    if (statutoryCount < MIN_STATUTORY_DAYS_PER_CYCLE) {
+      issues.push({
+        ruleCode: "STATUTORY_DAYS_FOUR_WEEKS",
+        severity: "warning",
+        message: `${employeeName ?? "員工"} 固定四週週期 ${start}～${end} 僅 ${statutoryCount} 天例假，需 ≥ ${MIN_STATUTORY_DAYS_PER_CYCLE} 天`,
+        employeeId,
+        employeeName,
+        date: start,
+        windowEnd: end,
+        actualValue: statutoryCount,
+        thresholdValue: MIN_STATUTORY_DAYS_PER_CYCLE,
+        unit: "days",
+      });
+    }
+
+    if (restCount < MIN_REST_DAYS_PER_CYCLE) {
+      issues.push({
+        ruleCode: "REST_DAYS_FOUR_WEEKS",
+        severity: "warning",
+        message: `${employeeName ?? "員工"} 固定四週週期 ${start}～${end} 僅 ${restCount} 天休息日，需 ≥ ${MIN_REST_DAYS_PER_CYCLE} 天`,
+        employeeId,
+        employeeName,
+        date: start,
+        windowEnd: end,
+        actualValue: restCount,
+        thresholdValue: MIN_REST_DAYS_PER_CYCLE,
+        unit: "days",
+      });
+    }
+
     if (offDaysTotal < MIN_OFF_DAYS_PER_CYCLE) {
       issues.push({
         ruleCode: "OFF_DAYS",
         severity: "warning",
-        message: `${employeeName ?? "員工"} ${cursor}～${windowEnd} 例假+休息僅 ${offDaysTotal} 天（例假 ${statutoryCount}、休息 ${restCount}），需 ≥ ${MIN_OFF_DAYS_PER_CYCLE} 天`,
+        message: `${employeeName ?? "員工"} 固定四週週期 ${start}～${end} 例假+休息僅 ${offDaysTotal} 天（例假 ${statutoryCount}、休息 ${restCount}），需 ≥ ${MIN_OFF_DAYS_PER_CYCLE} 天`,
         employeeId,
         employeeName,
-        date: cursor,
+        date: start,
+        windowEnd: end,
         actualValue: offDaysTotal,
         thresholdValue: MIN_OFF_DAYS_PER_CYCLE,
         unit: "days",
       });
     }
-
-    cursor = addDays(cursor, CYCLE_DAYS);
   }
 
   return issues;
@@ -480,15 +533,20 @@ function checkOffDayWorkConflicts(
   return issues;
 }
 
+/** 預警是否與指定月份區間重疊（固定週期用 windowEnd） */
+export function complianceIssueOverlapsRange(
+  issue: ComplianceIssue,
+  rangeStart: string,
+  rangeEnd: string
+): boolean {
+  if (!issue.date) return true;
+  const windowStart = issue.date;
+  const windowEnd = issue.windowEnd ?? issue.date;
+  return windowStart <= rangeEnd && windowEnd >= rangeStart;
+}
+
 export function checkCompliance(input: CheckComplianceInput): ComplianceIssue[] {
-  const {
-    periodStart,
-    periodEnd,
-    shifts,
-    dayOffs,
-    clocks,
-    employeeIds,
-  } = input;
+  const { periodStart, periodEnd, shifts, dayOffs, clocks, employeeIds } = input;
 
   if (shifts.length === 0 && dayOffs.length === 0) {
     return [];
@@ -498,8 +556,23 @@ export function checkCompliance(input: CheckComplianceInput): ComplianceIssue[] 
 
   for (const emp of employeeIds) {
     allIssues.push(
-      ...checkFourWeekWindows(emp.id, emp.name, periodStart, periodEnd, shifts, dayOffs, clocks),
-      ...checkTwoWeekStatutoryWindows(emp.id, emp.name, periodStart, periodEnd, dayOffs),
+      ...checkFourWeekWindows(
+        emp.id,
+        emp.name,
+        periodStart,
+        periodEnd,
+        shifts,
+        dayOffs,
+        clocks
+      ),
+      ...checkTwoWeekStatutoryWindows(
+        emp.id,
+        emp.name,
+        periodStart,
+        periodEnd,
+        dayOffs,
+        shifts
+      ),
       ...checkConsecutiveWorkDays(emp.id, emp.name, periodStart, periodEnd, shifts),
       ...checkDailyOvertime(emp.id, emp.name, shifts, clocks),
       ...checkRestBetweenShifts(emp.id, emp.name, shifts),
@@ -510,7 +583,7 @@ export function checkCompliance(input: CheckComplianceInput): ComplianceIssue[] 
 
   const seen = new Set<string>();
   return allIssues.filter((issue) => {
-    const key = `${issue.ruleCode}-${issue.employeeId}-${issue.date}-${issue.message}`;
+    const key = `${issue.ruleCode}-${issue.employeeId}-${issue.date}-${issue.windowEnd ?? ""}-${issue.message}`;
     if (seen.has(key)) return false;
     seen.add(key);
     return true;

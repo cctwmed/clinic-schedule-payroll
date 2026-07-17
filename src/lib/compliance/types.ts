@@ -6,7 +6,10 @@ export interface ComplianceIssue {
   message: string;
   employeeId?: string;
   employeeName?: string;
+  /** 事件日，或固定週期視窗起日 */
   date?: string;
+  /** 固定 2／4 週週期視窗迄日（與 date 組成完整結算區間） */
+  windowEnd?: string;
   actualValue?: number;
   thresholdValue?: number;
   unit?: string;

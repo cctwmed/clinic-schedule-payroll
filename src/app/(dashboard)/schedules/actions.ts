@@ -17,7 +17,7 @@ import {
   getDaysInMonth,
   OFF_DAY_CATEGORIES,
 } from "@/types/schedule";
-import { checkCompliance } from "@/lib/compliance/check-compliance";
+import { checkCompliance, complianceIssueOverlapsRange } from "@/lib/compliance/check-compliance";
 import { compliancePeriod, loadComplianceData, monthPeriod } from "@/lib/compliance/load-compliance-data";
 import type { ComplianceIssue } from "@/lib/compliance/types";
 import { buildGoldenShiftSlots, getShiftTemplate } from "@/lib/shift-templates";
@@ -100,8 +100,8 @@ export async function fetchSchedulePageData(year: number, month: number) {
     employeeIds: (employees ?? []).map((e) => ({ id: e.id, name: e.name })),
     employeeAId: goldenConfig?.employeeAId,
     oddWeekTrackForA: goldenConfig?.oddWeekTrackForA ?? 1,
-  }).filter(
-    (i) => !i.date || (i.date >= compPeriod.monthStart && i.date <= compPeriod.monthEnd)
+  }).filter((i) =>
+    complianceIssueOverlapsRange(i, compPeriod.monthStart, compPeriod.monthEnd)
   );
 
   const publicHolidays = listTaiwanPublicHolidaysInRange(monthStart, monthEnd);

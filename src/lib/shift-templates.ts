@@ -33,9 +33,9 @@ export const GOLDEN_SCHEDULE = {
   REST_BETWEEN_ACTUAL_HOURS: 12.33,
   BREAK_REMINDER_HOURS: 4,
   BREAK_DURATION_MINUTES: 30,
-  /** 彈性假日／績效獎金手動區間 */
-  FLEXIBLE_BONUS_MIN: 500,
-  FLEXIBLE_BONUS_MAX: 2000,
+  /** @deprecated 改用 CLINIC_PAYROLL.FLEXIBLE_BONUS_*（3/6/9/12 月、2000–6600） */
+  FLEXIBLE_BONUS_MIN: 2_000,
+  FLEXIBLE_BONUS_MAX: 6_600,
   /** 合規容許誤差（小時） */
   HOURS_TOLERANCE: 0.5,
 } as const;
@@ -159,6 +159,11 @@ export const MORNING_START_OPTIONS: MorningStartOption[] = ["08:20"];
 export const FLEXIBLE_LABOR = {
   CYCLE_DAYS: 28,
   TWO_WEEK_DAYS: 14,
+  /**
+   * 固定週期錨點（必須為週一）。
+   * 與黃金班表 ISO 週對齊：14／28 日區塊自此日起非重疊前進，禁止滾動日窗。
+   */
+  CYCLE_EPOCH_MONDAY: "2024-01-01",
   MAX_REGULAR_HOURS_PER_CYCLE: 160,
   MAX_REGULAR_HOURS_PER_DAY: GOLDEN_SCHEDULE.DUAL_DAY_HOURS,
   MAX_HALF_DAY_HOURS: GOLDEN_SCHEDULE.HALF_DAY_HOURS,
@@ -167,16 +172,75 @@ export const FLEXIBLE_LABOR = {
   MAX_TRANSFER_HOURS_PER_DAY: 10,
   WEEKLY_HOURS_TRACK1: GOLDEN_SCHEDULE.WEEKLY_HOURS_TRACK1,
   WEEKLY_HOURS_TRACK2: GOLDEN_SCHEDULE.WEEKLY_HOURS_TRACK2,
-  /** 每 14 日至少 2 天例假 */
+  /** 每固定 14 日（2 週）至少 2 天例假 */
   MIN_STATUTORY_DAYS_PER_TWO_WEEKS: 2,
-  /** 每 28 日例假 + 休息日合計至少 8 天 */
+  /** 每固定 28 日至少 4 天例假 */
+  MIN_STATUTORY_DAYS_PER_CYCLE: 4,
+  /** 每固定 28 日至少 4 天休息日 */
+  MIN_REST_DAYS_PER_CYCLE: 4,
+  /** 每固定 28 日例假 + 休息日合計至少 8 天 */
   MIN_OFF_DAYS_PER_CYCLE: 8,
-  /** 連續工作天數上限（第 13 天起違規） */
+  /** 連續工作天數上限（第 13 天起違規；12 天內合規） */
   MAX_CONSECUTIVE_WORK_DAYS: 12,
   MIN_REST_BETWEEN_SHIFTS_HOURS: GOLDEN_SCHEDULE.REST_BETWEEN_SHIFTS_HOURS,
   BREAK_REMINDER_HOURS: GOLDEN_SCHEDULE.BREAK_REMINDER_HOURS,
   HOURS_TOLERANCE: GOLDEN_SCHEDULE.HOURS_TOLERANCE,
 } as const;
+
+function formatTaipeiYmd(date: Date): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Taipei",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(date);
+}
+
+/** 兩日期相差天數（dateB − dateA；台北日曆日） */
+export function daysBetweenTaipei(dateA: string, dateB: string): number {
+  const a = new Date(`${dateA}T12:00:00+08:00`).getTime();
+  const b = new Date(`${dateB}T12:00:00+08:00`).getTime();
+  return Math.round((b - a) / 86_400_000);
+}
+
+export function addDaysTaipei(dateStr: string, days: number): string {
+  const base = new Date(`${dateStr}T12:00:00+08:00`);
+  base.setTime(base.getTime() + days * 86_400_000);
+  return formatTaipeiYmd(base);
+}
+
+/**
+ * 將日期對齊到固定週期起日（含該日起算的 cycleDays 區塊）。
+ * 例：epoch=週一、cycleDays=14 → 非重疊的兩週班表週期。
+ */
+export function alignToFixedCycle(
+  dateStr: string,
+  cycleDays: number,
+  epochMonday: string = FLEXIBLE_LABOR.CYCLE_EPOCH_MONDAY
+): string {
+  const offset = daysBetweenTaipei(epochMonday, dateStr);
+  const mod = ((offset % cycleDays) + cycleDays) % cycleDays;
+  return addDaysTaipei(dateStr, -mod);
+}
+
+/** 產生與 [rangeStart, rangeEnd] 有交集的完整固定週期（僅完整區塊） */
+export function iterateFixedCycles(
+  rangeStart: string,
+  rangeEnd: string,
+  cycleDays: number,
+  epochMonday: string = FLEXIBLE_LABOR.CYCLE_EPOCH_MONDAY
+): { start: string; end: string }[] {
+  const cycles: { start: string; end: string }[] = [];
+  let cursor = alignToFixedCycle(rangeStart, cycleDays, epochMonday);
+  while (cursor <= rangeEnd) {
+    const end = addDaysTaipei(cursor, cycleDays - 1);
+    if (end >= rangeStart && cursor <= rangeEnd) {
+      cycles.push({ start: cursor, end });
+    }
+    cursor = addDaysTaipei(cursor, cycleDays);
+  }
+  return cycles;
+}
 
 /** 是否為雙診日（週一、二、四、五） */
 export function isDualClinicDay(dayOfWeek: number): boolean {

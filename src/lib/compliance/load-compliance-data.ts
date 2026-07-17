@@ -1,5 +1,10 @@
 import { supabase } from "@/lib/supabase";
 import type { ClockEvent, DayOffRecord, WorkShiftBlock } from "@/lib/compliance/types";
+import {
+  FLEXIBLE_LABOR,
+  addDaysTaipei,
+  alignToFixedCycle,
+} from "@/lib/shift-templates";
 
 export async function loadComplianceData(
   clinicId: string,
@@ -138,18 +143,13 @@ export function monthPeriod(year: number, month: number) {
   return { start, end };
 }
 
-/** 合規檢查需含四週滑動窗口，向前延伸 27 天 */
+/** 合規檢查：對齊固定四週週期（含當月相交的完整 28 日區塊） */
 export function compliancePeriod(year: number, month: number) {
-  const { start, end } = monthPeriod(year, month);
-  const extStart = new Date(`${start}T12:00:00+08:00`);
-  extStart.setTime(extStart.getTime() - 27 * 86_400_000);
-  const extStartStr = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Asia/Taipei",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(extStart);
-  return { start: extStartStr, end, monthStart: start, monthEnd: end };
+  const { start: monthStart, end: monthEnd } = monthPeriod(year, month);
+  const cycleStart = alignToFixedCycle(monthStart, FLEXIBLE_LABOR.CYCLE_DAYS);
+  const lastCycleStart = alignToFixedCycle(monthEnd, FLEXIBLE_LABOR.CYCLE_DAYS);
+  const cycleEnd = addDaysTaipei(lastCycleStart, FLEXIBLE_LABOR.CYCLE_DAYS - 1);
+  return { start: cycleStart, end: cycleEnd, monthStart, monthEnd };
 }
 
 function parseClosureCredit(note: unknown, plannedHours: number): number {

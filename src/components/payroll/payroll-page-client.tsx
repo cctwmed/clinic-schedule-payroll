@@ -9,7 +9,6 @@ import type { ComplianceIssue } from "@/lib/compliance/types";
 import type { LeavePayoutDue } from "@/lib/leave/service";
 import type { AnnualPayrollSummary } from "@/lib/payroll/annual-summary";
 import { CLINIC_PAYROLL } from "@/lib/payroll/constants";
-import { GOLDEN_SCHEDULE } from "@/lib/shift-templates";
 import {
   clampFlexibleBonus,
   clampQuarterlyBonus,
@@ -489,7 +488,7 @@ export function PayrollPageClient({
                       <th className="px-3 py-3">臨時加班(h)</th>
                       <th className="px-3 py-3">國定加倍</th>
                       <th className="px-3 py-3">國定延長</th>
-                      <th className="px-3 py-3">彈性獎金</th>
+                      {isQuarterlyMonth && <th className="px-3 py-3">彈性獎金</th>}
                       {isQuarterlyMonth && <th className="px-3 py-3">季獎金</th>}
                       {isYearEndMonth && <th className="px-3 py-3">年終</th>}
                       <th className="px-3 py-3">特休折現</th>
@@ -555,21 +554,23 @@ export function PayrollPageClient({
                             ? formatMoney(item.holidayOvertimePay)
                             : "—"}
                         </td>
-                        <td className="px-3 py-3">
-                          <input
-                            type="number"
-                            min={0}
-                            max={GOLDEN_SCHEDULE.FLEXIBLE_BONUS_MAX}
-                            step={100}
-                            value={item.flexibleBonus || ""}
-                            placeholder={`${GOLDEN_SCHEDULE.FLEXIBLE_BONUS_MIN}–${GOLDEN_SCHEDULE.FLEXIBLE_BONUS_MAX}`}
-                            disabled={item.parentalLeaveSuspend}
-                            onChange={(e) =>
-                              updateFlexibleBonus(item.employeeId, Number(e.target.value))
-                            }
-                            className="w-24 rounded-lg border border-slate-200 px-2 py-1 text-sm disabled:bg-slate-100 disabled:text-slate-400"
-                          />
-                        </td>
+                        {isQuarterlyMonth && (
+                          <td className="px-3 py-3">
+                            <input
+                              type="number"
+                              min={0}
+                              max={CLINIC_PAYROLL.FLEXIBLE_BONUS_MAX}
+                              step={100}
+                              value={item.flexibleBonus || ""}
+                              placeholder={`${CLINIC_PAYROLL.FLEXIBLE_BONUS_MIN}–${CLINIC_PAYROLL.FLEXIBLE_BONUS_MAX}`}
+                              disabled={item.parentalLeaveSuspend}
+                              onChange={(e) =>
+                                updateFlexibleBonus(item.employeeId, Number(e.target.value))
+                              }
+                              className="w-24 rounded-lg border border-slate-200 px-2 py-1 text-sm disabled:bg-slate-100 disabled:text-slate-400"
+                            />
+                          </td>
+                        )}
                         {isQuarterlyMonth && (
                           <td className="px-3 py-3">{formatMoney(item.quarterlyBonus)}</td>
                         )}
@@ -704,8 +705,12 @@ function SalaryStructureBanner() {
           特休未休畢折現：(月薪 ÷ 30) × 未休天數，到期或離職時併入當月非經常性薪資
         </li>
         <li>
-          季獎金固定於 3、6、9、12 月發放，金額 {CLINIC_PAYROLL.QUARTERLY_BONUS_MIN.toLocaleString("zh-TW")}–
-          {CLINIC_PAYROLL.QUARTERLY_BONUS_MAX.toLocaleString("zh-TW")} 元；彈性獎金、年終獎金為獨立欄位（非經常性薪資）
+          彈性獎金與季獎金固定於 3、6、9、12 月發放；彈性獎金{" "}
+          {CLINIC_PAYROLL.FLEXIBLE_BONUS_MIN.toLocaleString("zh-TW")}–
+          {CLINIC_PAYROLL.FLEXIBLE_BONUS_MAX.toLocaleString("zh-TW")} 元，季獎金{" "}
+          {CLINIC_PAYROLL.QUARTERLY_BONUS_MIN.toLocaleString("zh-TW")}–
+          {CLINIC_PAYROLL.QUARTERLY_BONUS_MAX.toLocaleString("zh-TW")}{" "}
+          元；年終獎金為獨立欄位（皆為非經常性薪資）
         </li>
       </ul>
     </div>

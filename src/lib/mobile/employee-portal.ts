@@ -161,6 +161,7 @@ export async function fetchMobilePayslip(
     {
       year,
       month,
+      includeFlexibleBonus: false,
       includeQuarterlyBonus: false,
       includeYearEndBonus: false,
       holidayDates,

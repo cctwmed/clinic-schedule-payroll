@@ -27,11 +27,16 @@ export const CLINIC_PAYROLL = {
   YEAR_END_FULL_AMOUNT: 34_000,
   /** 年終比例分母（滿 12 個月） */
   YEAR_END_MONTHS_BASE: 12,
-  /** 季度獎金發放月份（3、6、9、12 月底） */
+  /** 季度／彈性獎金發放月份（3、6、9、12 月底） */
   QUARTERLY_BONUS_MONTHS: [3, 6, 9, 12] as const,
   /** 季度績效獎金金額區間（元） */
   QUARTERLY_BONUS_MIN: 2_000,
   QUARTERLY_BONUS_MAX: 6_000,
+  /** 彈性獎金：僅 3、6、9、12 月發放 */
+  FLEXIBLE_BONUS_MONTHS: [3, 6, 9, 12] as const,
+  /** 彈性獎金金額區間（元） */
+  FLEXIBLE_BONUS_MIN: 2_000,
+  FLEXIBLE_BONUS_MAX: 6_600,
   /** 特休未休畢折現日薪基數（月薪 / 30） */
   ANNUAL_LEAVE_DAILY_RATE: 34_000 / 30,
   OT_RATE_WEEKDAY_1: 1.34,
@@ -48,6 +53,11 @@ export type QuarterlyBonusMonth = (typeof CLINIC_PAYROLL.QUARTERLY_BONUS_MONTHS)
 
 export function isQuarterlyBonusMonth(month: number): boolean {
   return (CLINIC_PAYROLL.QUARTERLY_BONUS_MONTHS as readonly number[]).includes(month);
+}
+
+/** 彈性獎金發放月（與季獎金同為 3、6、9、12） */
+export function isFlexibleBonusMonth(month: number): boolean {
+  return (CLINIC_PAYROLL.FLEXIBLE_BONUS_MONTHS as readonly number[]).includes(month);
 }
 
 export function getQuarterLabel(month: number): string | null {

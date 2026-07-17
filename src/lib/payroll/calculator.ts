@@ -7,7 +7,6 @@ import {
 import { CLINIC_PAYROLL, sumNonRecurringBonus } from "@/lib/payroll/constants";
 import { calculateMonthlyOvertimePay } from "@/lib/payroll/overtime-pay";
 import { calculateYearEndBonus } from "@/lib/payroll/year-end-bonus";
-import { GOLDEN_SCHEDULE } from "@/lib/shift-templates";
 import type { ClockEvent, WorkShiftBlock } from "@/lib/compliance/types";
 import type { LeavePayrollSummary } from "@/lib/payroll/leave-deductions";
 import type { EmployeeStatus } from "@/types/employee";
@@ -102,6 +101,8 @@ export interface PayrollLineItem {
 export interface PayrollCalcContext {
   year: number;
   month: number;
+  /** 彈性獎金：僅 3、6、9、12 月 */
+  includeFlexibleBonus: boolean;
   includeQuarterlyBonus: boolean;
   includeYearEndBonus: boolean;
   /** 國定假日日期（班表標記 + 行政院假日 − 休診） */
@@ -119,8 +120,8 @@ export function roundMoney(n: number): number {
 export function clampFlexibleBonus(amount: number): number {
   if (Number.isNaN(amount) || amount <= 0) return 0;
   return Math.min(
-    GOLDEN_SCHEDULE.FLEXIBLE_BONUS_MAX,
-    Math.max(GOLDEN_SCHEDULE.FLEXIBLE_BONUS_MIN, Math.round(amount))
+    CLINIC_PAYROLL.FLEXIBLE_BONUS_MAX,
+    Math.max(CLINIC_PAYROLL.FLEXIBLE_BONUS_MIN, Math.round(amount))
   );
 }
 
@@ -327,7 +328,9 @@ export function calculateEmployeePayroll(
   const basePay = baseSalary + jobAllowance + fullAttendanceBonus;
   const overtimePay = calculateMonthlyOvertimePay(otTier1 + otTier2);
 
-  const flexibleBonus = clampFlexibleBonus(bonusInput.flexibleBonus ?? 0);
+  const flexibleBonus = context?.includeFlexibleBonus
+    ? clampFlexibleBonus(bonusInput.flexibleBonus ?? 0)
+    : 0;
   const quarterlyBonus = context?.includeQuarterlyBonus
     ? clampQuarterlyBonus(bonusInput.quarterlyBonus ?? 0)
     : 0;

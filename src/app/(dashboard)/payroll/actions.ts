@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { supabase } from "@/lib/supabase";
 import { getDefaultClinic } from "@/lib/clinic";
-import { checkCompliance } from "@/lib/compliance/check-compliance";
+import { checkCompliance, complianceIssueOverlapsRange } from "@/lib/compliance/check-compliance";
 import {
   compliancePeriod,
   loadComplianceData,
@@ -13,6 +13,7 @@ import type { ComplianceIssue } from "@/lib/compliance/types";
 import { parseGoldenConfig, parseScheduleMeta } from "@/lib/schedules/golden-config";
 import { resolveHolidayDates } from "@/lib/payroll/holiday-attendance-pay";
 import {
+  isFlexibleBonusMonth,
   isQuarterlyBonusMonth,
   isYearEndBonusMonth,
   getQuarterLabel,
@@ -85,8 +86,8 @@ export async function fetchPayrollPageData(year: number, month: number) {
     oddWeekTrackForA: goldenConfig?.oddWeekTrackForA ?? 1,
   });
 
-  const monthIssues = complianceIssues.filter(
-    (i) => !i.date || (i.date >= start && i.date <= end)
+  const monthIssues = complianceIssues.filter((i) =>
+    complianceIssueOverlapsRange(i, start, end)
   );
 
   const { data: existingRun } = await supabase
@@ -110,6 +111,7 @@ export async function fetchPayrollPageData(year: number, month: number) {
     }
   }
 
+  const includeFlexible = isFlexibleBonusMonth(month);
   const includeQuarterly = isQuarterlyBonusMonth(month);
   const includeYearEnd = isYearEndBonusMonth(month);
 
@@ -162,6 +164,7 @@ export async function fetchPayrollPageData(year: number, month: number) {
       {
         year,
         month,
+        includeFlexibleBonus: includeFlexible,
         includeQuarterlyBonus: includeQuarterly,
         includeYearEndBonus: includeYearEnd,
         holidayDates,
@@ -302,9 +305,11 @@ function buildRunNote(
   lineItems: PayrollLineItem[]
 ): string {
   const parts = [`${year}年${month}月結算`, `合規預警 ${issueCount} 項`];
-  if (isQuarterlyBonusMonth(month)) {
-    const total = lineItems.reduce((s, i) => s + i.quarterlyBonus, 0);
-    parts.push(`季度獎金 ${total} 元`);
+  if (isFlexibleBonusMonth(month) || isQuarterlyBonusMonth(month)) {
+    const flexTotal = lineItems.reduce((s, i) => s + i.flexibleBonus, 0);
+    const qTotal = lineItems.reduce((s, i) => s + i.quarterlyBonus, 0);
+    if (flexTotal > 0) parts.push(`彈性獎金 ${flexTotal} 元`);
+    if (qTotal > 0) parts.push(`季度獎金 ${qTotal} 元`);
   }
   if (isYearEndBonusMonth(month)) {
     const total = lineItems.reduce((s, i) => s + i.yearEndBonus, 0);
