@@ -50,20 +50,45 @@ const supabase = createClient(url, serviceKey, {
   auth: { persistSession: false, autoRefreshToken: false },
 });
 
+async function findUserByEmail(targetEmail) {
+  const normalized = targetEmail.trim().toLowerCase();
+  for (let page = 1; page <= 20; page++) {
+    const { data, error } = await supabase.auth.admin.listUsers({ page, perPage: 200 });
+    if (error) throw error;
+    const match = data.users.find((u) => u.email?.toLowerCase() === normalized);
+    if (match) return match;
+    if (data.users.length < 200) break;
+  }
+  return null;
+}
+
+const trimmedEmail = email.trim();
+
+const existing = await findUserByEmail(trimmedEmail);
+if (existing) {
+  const { data, error } = await supabase.auth.admin.updateUserById(existing.id, {
+    password,
+    email_confirm: true,
+  });
+  if (error) {
+    console.error("重設密碼失敗：", error.message);
+    process.exit(1);
+  }
+  console.log("管理員帳號建立成功（已覆蓋重設密碼）：", data.user?.email ?? trimmedEmail);
+  console.log("請至 https://clinic-schedule-payroll.vercel.app/login 登入（或本機 /login）");
+  process.exit(0);
+}
+
 const { data, error } = await supabase.auth.admin.createUser({
-  email,
+  email: trimmedEmail,
   password,
   email_confirm: true,
 });
 
 if (error) {
-  if (error.message.includes("already been registered")) {
-    console.log(`帳號 ${email} 已存在，無需重複建立。`);
-    process.exit(0);
-  }
   console.error("建立失敗：", error.message);
   process.exit(1);
 }
 
-console.log("管理員帳號已建立：", data.user?.email);
+console.log("管理員帳號建立成功：", data.user?.email);
 console.log("請至 https://clinic-schedule-payroll.vercel.app/login 登入（或本機 /login）");

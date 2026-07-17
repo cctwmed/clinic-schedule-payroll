@@ -291,118 +291,131 @@ export async function POST(request: NextRequest) {
 }
 
 export async function GET(request: NextRequest) {
-  const lineUserId = request.nextUrl.searchParams.get("lineUserId");
-  if (!lineUserId) {
-    return NextResponse.json({ error: "缺少 lineUserId" }, { status: 400 });
-  }
+  try {
+    const lineUserId = request.nextUrl.searchParams.get("lineUserId");
+    if (!lineUserId) {
+      return NextResponse.json({ error: "缺少 lineUserId" }, { status: 400 });
+    }
 
-  const today = taipeiToday();
-  const lookbackStart = addDaysTaipei(today, -7);
+    const today = taipeiToday();
+    const lookbackStart = addDaysTaipei(today, -7);
 
-  const [clinic, bindingResult] = await Promise.all([
-    getDefaultClinic(),
-    supabase
-      .from("employee_line_bindings")
-      .select("employee_id, employees(id, name, role, employee_no, is_clinic_admin)")
-      .eq("line_user_id", lineUserId)
-      .eq("is_active", true)
-      .maybeSingle(),
-  ]);
-
-  const binding = bindingResult.data;
-
-  let assignments: WorkAssignment[] = [];
-  let recentAssignments: WorkAssignment[] = [];
-  let todayClocks: ExistingClock[] = [];
-  let recentClocks: ExistingClock[] = [];
-  let nextAction: "clock_in" | "clock_out" | "done" = "clock_in";
-  let isClinicAdmin = false;
-
-  let employees: { id: string; name: string; employee_no: string }[] | null = null;
-
-  if (binding?.employee_id) {
-    const adminAccess = await resolveLiffAdminAccess(lineUserId, binding);
-    isClinicAdmin = adminAccess.isClinicAdmin;
-
-    const [assignTodayRes, assignRecentRes, clocksRes] = await Promise.all([
+    const [clinic, bindingResult] = await Promise.all([
+      getDefaultClinic(),
       supabase
-        .from("shift_assignments")
-        .select("id, expected_clock_in, expected_clock_out, shift_types(code, name)")
-        .eq("employee_id", binding.employee_id)
-        .eq("work_date", today)
-        .neq("status", "cancelled")
-        .order("expected_clock_in"),
-      supabase
-        .from("shift_assignments")
-        .select("id, expected_clock_in, expected_clock_out, shift_types(code, name)")
-        .eq("employee_id", binding.employee_id)
-        .gte("work_date", lookbackStart)
-        .lte("work_date", today)
-        .neq("status", "cancelled")
-        .order("work_date")
-        .order("expected_clock_in"),
-      supabase
-        .from("clock_records")
-        .select(
-          "id, clock_type, clocked_at, validation, is_late, late_minutes, is_manually_corrected, assignment_id, note"
-        )
-        .eq("employee_id", binding.employee_id)
-        .gte("clock_date", lookbackStart)
-        .lte("clock_date", today)
-        .order("clocked_at"),
+        .from("employee_line_bindings")
+        .select("employee_id, employees(id, name, role, employee_no, is_clinic_admin)")
+        .eq("line_user_id", lineUserId)
+        .eq("is_active", true)
+        .maybeSingle(),
     ]);
 
-    assignments = mapAssignments(assignTodayRes.data ?? []);
-    recentAssignments = mapAssignments(assignRecentRes.data ?? []);
-    recentClocks = (clocksRes.data ?? []) as ExistingClock[];
-    todayClocks = recentClocks.filter((c) => c.clocked_at.startsWith(today));
-    nextAction = suggestNextClockAction(assignments, todayClocks);
-  } else {
-    const { data } = await supabase
-      .from("employees")
-      .select("id, name, employee_no")
-      .eq("status", "active")
-      .order("employee_no");
-    employees = data ?? [];
+    const binding = bindingResult.data;
+
+    let assignments: WorkAssignment[] = [];
+    let recentAssignments: WorkAssignment[] = [];
+    let todayClocks: ExistingClock[] = [];
+    let recentClocks: ExistingClock[] = [];
+    let nextAction: "clock_in" | "clock_out" | "done" = "clock_in";
+    let isClinicAdmin = false;
+
+    let employees: { id: string; name: string; employee_no: string }[] | null = null;
+
+    if (binding?.employee_id) {
+      const adminAccess = await resolveLiffAdminAccess(lineUserId, binding);
+      isClinicAdmin = adminAccess.isClinicAdmin;
+
+      const [assignTodayRes, assignRecentRes, clocksRes] = await Promise.all([
+        supabase
+          .from("shift_assignments")
+          .select("id, expected_clock_in, expected_clock_out, shift_types(code, name)")
+          .eq("employee_id", binding.employee_id)
+          .eq("work_date", today)
+          .neq("status", "cancelled")
+          .order("expected_clock_in"),
+        supabase
+          .from("shift_assignments")
+          .select("id, expected_clock_in, expected_clock_out, shift_types(code, name)")
+          .eq("employee_id", binding.employee_id)
+          .gte("work_date", lookbackStart)
+          .lte("work_date", today)
+          .neq("status", "cancelled")
+          .order("work_date")
+          .order("expected_clock_in"),
+        supabase
+          .from("clock_records")
+          .select(
+            "id, clock_type, clocked_at, validation, is_late, late_minutes, is_manually_corrected, assignment_id, note"
+          )
+          .eq("employee_id", binding.employee_id)
+          .gte("clock_date", lookbackStart)
+          .lte("clock_date", today)
+          .order("clocked_at"),
+      ]);
+
+      assignments = mapAssignments(assignTodayRes.data ?? []);
+      recentAssignments = mapAssignments(assignRecentRes.data ?? []);
+      recentClocks = (clocksRes.data ?? []) as ExistingClock[];
+      todayClocks = recentClocks.filter((c) => c.clocked_at.startsWith(today));
+      nextAction = suggestNextClockAction(assignments, todayClocks);
+    } else {
+      const { data, error } = await supabase
+        .from("employees")
+        .select("id, name, employee_no")
+        .eq("status", "active")
+        .order("employee_no");
+      if (error) throw new Error(error.message);
+      employees = data ?? [];
+    }
+
+    const workToday = filterWorkAssignments(assignments);
+    const shiftStatuses = buildShiftClockStatuses(assignments, todayClocks);
+    const workDutyStatus = resolveWorkDutyStatus(assignments, todayClocks);
+    const reminders = binding?.employee_id
+      ? evaluateClockReminders(
+          today,
+          assignments,
+          recentAssignments,
+          recentClocks,
+          shiftStatuses
+        )
+      : [];
+
+    return NextResponse.json({
+      clinic: {
+        name: clinic.name,
+        latitude: clinic.latitude,
+        longitude: clinic.longitude,
+        radiusM: clinic.geo_radius_m ?? DEFAULT_GEO_RADIUS_M,
+      },
+      binding: binding
+        ? {
+            employeeId: binding.employee_id,
+            employeeName: getEmployeeName(binding.employees),
+          }
+        : null,
+      isClinicAdmin,
+      employees: employees ?? [],
+      assignments: workToday,
+      shiftStatuses,
+      todayClocks,
+      nextAction,
+      workDutyStatus,
+      workDutyStatusLabel: workDutyStatusLabel(workDutyStatus),
+      reminders,
+      today,
+    });
+  } catch (err) {
+    return NextResponse.json(
+      {
+        error:
+          err instanceof Error
+            ? err.message
+            : "載入打卡狀態失敗，請確認已設定 SUPABASE_SERVICE_ROLE_KEY",
+      },
+      { status: 500 }
+    );
   }
-
-  const workToday = filterWorkAssignments(assignments);
-  const shiftStatuses = buildShiftClockStatuses(assignments, todayClocks);
-  const workDutyStatus = resolveWorkDutyStatus(assignments, todayClocks);
-  const reminders = binding?.employee_id
-    ? evaluateClockReminders(
-        today,
-        assignments,
-        recentAssignments,
-        recentClocks,
-        shiftStatuses
-      )
-    : [];
-
-  return NextResponse.json({
-    clinic: {
-      name: clinic.name,
-      latitude: clinic.latitude,
-      longitude: clinic.longitude,
-      radiusM: clinic.geo_radius_m ?? DEFAULT_GEO_RADIUS_M,
-    },
-    binding: binding
-      ? {
-          employeeId: binding.employee_id,
-          employeeName: getEmployeeName(binding.employees),
-        }
-      : null,
-    isClinicAdmin,
-    employees: employees ?? [],
-    assignments: workToday,
-    shiftStatuses,
-    todayClocks,
-    nextAction,
-    workDutyStatus,
-    workDutyStatusLabel: workDutyStatusLabel(workDutyStatus),
-    reminders,
-    today,
-  });
 }
 
 function addDaysTaipei(dateStr: string, days: number): string {

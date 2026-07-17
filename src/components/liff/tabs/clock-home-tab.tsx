@@ -109,7 +109,13 @@ export function ClockHomeTab({
     setStatusLoading(true);
     try {
       const res = await fetch(`/api/clock?lineUserId=${encodeURIComponent(lineUserId)}`);
-      const data = await res.json();
+      const raw = await res.text();
+      let data: ClockStatus & { error?: string };
+      try {
+        data = raw ? JSON.parse(raw) : { error: "伺服器未回傳資料" };
+      } catch {
+        throw new Error(raw?.slice(0, 120) || "伺服器回應格式錯誤");
+      }
       if (!res.ok) throw new Error(data.error ?? "載入失敗");
       setStatus(data);
       if (data.binding) setSelectedEmployeeId(data.binding.employeeId);
