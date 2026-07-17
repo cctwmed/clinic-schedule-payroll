@@ -82,7 +82,7 @@ function toPayload(
     payload.job_title = form.job_title;
   }
   if (includeClinicAdmin) {
-    payload.is_clinic_admin = form.is_clinic_admin;
+    payload.is_clinic_admin = form.role === "admin" ? true : form.is_clinic_admin;
   }
   return payload;
 }

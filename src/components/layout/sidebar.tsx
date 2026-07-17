@@ -2,6 +2,7 @@
 
 import { usePathname } from "next/navigation";
 import Link from "next/link";
+import { LogoutButton } from "@/components/layout/logout-button";
 
 const navItems = [
   { href: "/", label: "總覽", icon: "🏠" },
@@ -46,6 +47,8 @@ export function Sidebar() {
           );
         })}
       </nav>
+
+      <LogoutButton />
     </aside>
   );
 }

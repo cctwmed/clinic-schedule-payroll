@@ -63,6 +63,39 @@ export default async function HomePage() {
           {connection.message}
         </div>
 
+        <section className="rounded-2xl border border-emerald-200 bg-gradient-to-br from-emerald-50 to-sky-50 p-5 shadow-sm">
+          <h2 className="text-lg font-bold text-slate-900">電腦快速入口</h2>
+          <p className="mt-1 text-sm text-slate-600">
+            不需記 localhost。點下方大按鈕即可進入；也可執行專案內「建立桌面捷徑.bat」在桌面放一鍵圖示。
+          </p>
+          <div className="mt-4 grid gap-3 sm:grid-cols-2">
+            <LaunchButton
+              href="https://clinic-schedule-payroll.vercel.app/liff/clock"
+              title="LINE 打卡（手機／電腦）"
+              subtitle="同仁打卡、請假、管理員分頁"
+              accent="emerald"
+            />
+            <LaunchButton
+              href="/"
+              title="管理後台總覽"
+              subtitle="排班、薪資、員工、打卡紀錄"
+              accent="blue"
+            />
+            <LaunchButton
+              href="/schedules"
+              title="排班管理"
+              subtitle="編輯班表、發布"
+              accent="violet"
+            />
+            <LaunchButton
+              href="/payroll"
+              title="薪資結算"
+              subtitle="月薪、規費、合規預警"
+              accent="amber"
+            />
+          </div>
+        </section>
+
         <div className="grid gap-4 sm:grid-cols-2">
           <QuickLink
             href="/employees"
@@ -96,6 +129,53 @@ function StatCard({ label, value }: { label: string; value: string }) {
       <p className="text-sm text-slate-500">{label}</p>
       <p className="mt-1 text-2xl font-semibold text-slate-900">{value}</p>
     </div>
+  );
+}
+
+function LaunchButton({
+  href,
+  title,
+  subtitle,
+  accent,
+}: {
+  href: string;
+  title: string;
+  subtitle: string;
+  accent: "emerald" | "blue" | "violet" | "amber";
+}) {
+  const styles = {
+    emerald: "border-emerald-300 bg-white hover:border-emerald-400 hover:bg-emerald-50",
+    blue: "border-blue-300 bg-white hover:border-blue-400 hover:bg-blue-50",
+    violet: "border-violet-300 bg-white hover:border-violet-400 hover:bg-violet-50",
+    amber: "border-amber-300 bg-white hover:border-amber-400 hover:bg-amber-50",
+  }[accent];
+
+  const isExternal = href.startsWith("http");
+
+  if (isExternal) {
+    return (
+      <a
+        href={href}
+        target="_blank"
+        rel="noopener noreferrer"
+        className={`block rounded-xl border-2 px-5 py-4 shadow-sm transition ${styles}`}
+      >
+        <p className="text-base font-bold text-slate-900">{title}</p>
+        <p className="mt-1 text-sm text-slate-500">{subtitle}</p>
+        <p className="mt-2 text-xs font-medium text-emerald-700">點一下開啟 →</p>
+      </a>
+    );
+  }
+
+  return (
+    <Link
+      href={href}
+      className={`block rounded-xl border-2 px-5 py-4 shadow-sm transition ${styles}`}
+    >
+      <p className="text-base font-bold text-slate-900">{title}</p>
+      <p className="mt-1 text-sm text-slate-500">{subtitle}</p>
+      <p className="mt-2 text-xs font-medium text-emerald-700">點一下進入 →</p>
+    </Link>
   );
 }
 
