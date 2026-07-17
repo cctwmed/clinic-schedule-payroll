@@ -7,9 +7,9 @@ import {
   correctClockRecord,
   reviewEarlyPunch,
   reviewForgotClockRequest,
-  type ClockRecordRow,
-  type CorrectionRequestRow,
 } from "@/app/(dashboard)/clock-records/actions";
+import type { CorrectionRequestRow } from "@/lib/clock/correction-request";
+import type { ClockRecordRow } from "@/types/clock-records";
 import { EARLY_PUNCH_BUFFER_MINUTES } from "@/lib/clock/early-punch";
 
 import { monthRangeFromDate } from "@/lib/clock/export-report";

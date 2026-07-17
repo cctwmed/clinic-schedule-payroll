@@ -1,0 +1,31 @@
+export interface ClockRecordRow {
+  id: string;
+  employee_id: string;
+  employee_name: string;
+  employee_no: string;
+  assignment_id: string | null;
+  clock_type: string;
+  clocked_at: string;
+  clock_date: string;
+  latitude: number | null;
+  longitude: number | null;
+  distance_from_clinic_m: number | null;
+  validation: string;
+  source: string;
+  is_late: boolean;
+  late_minutes: number;
+  is_manually_corrected: boolean;
+  corrected_by: string | null;
+  corrected_at: string | null;
+  original_clocked_at: string | null;
+  note: string | null;
+  shift_name: string | null;
+  is_early: boolean;
+  early_minutes: number;
+  payable_clocked_at: string | null;
+  expected_at: string | null;
+  is_early_abnormal: boolean;
+  early_work_approved: boolean;
+  early_reviewed_by: string | null;
+  early_reviewed_at: string | null;
+}
