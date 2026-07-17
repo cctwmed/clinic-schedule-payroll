@@ -12,12 +12,15 @@ import {
 } from "@/app/(dashboard)/clock-records/actions";
 import { EARLY_PUNCH_BUFFER_MINUTES } from "@/lib/clock/early-punch";
 
+import { monthRangeFromDate } from "@/lib/clock/export-report";
+
 interface ClockRecordsPageClientProps {
   clinicName: string;
   date: string;
   records: ClockRecordRow[];
   pendingEarlyReview?: number;
   pendingCorrections?: CorrectionRequestRow[];
+  employees?: { id: string; name: string; employee_no: string }[];
 }
 
 const CLOCK_TYPE_LABELS: Record<string, string> = {
@@ -33,11 +36,23 @@ export function ClockRecordsPageClient({
   records,
   pendingEarlyReview = 0,
   pendingCorrections = [],
+  employees = [],
 }: ClockRecordsPageClientProps) {
   const router = useRouter();
   const [editing, setEditing] = useState<ClockRecordRow | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
+  const [exportEmployeeId, setExportEmployeeId] = useState("");
+  const monthRange = monthRangeFromDate(date);
+
+  function openExportReport() {
+    const params = new URLSearchParams({
+      from: monthRange.from,
+      to: monthRange.to,
+    });
+    if (exportEmployeeId) params.set("employee", exportEmployeeId);
+    window.open(`/clock-records/export?${params.toString()}`, "_blank", "noopener,noreferrer");
+  }
 
   function changeDate(delta: number) {
     const d = new Date(`${date}T12:00:00+08:00`);
@@ -155,6 +170,43 @@ export function ClockRecordsPageClient({
             </p>
           </div>
         )}
+
+        <div className="rounded-xl border border-sky-200 bg-sky-50/80 px-4 py-4">
+          <p className="text-sm font-semibold text-sky-900">匯出列印（勞保局查核用）</p>
+          <p className="mt-1 text-xs text-sky-800">
+            匯出 LIFF GPS 打卡紀錄，可列印或下載 CSV，建議併同薪資轉帳證明提供勞保局。
+          </p>
+          <div className="mt-3 flex flex-wrap items-end gap-3">
+            <label className="text-sm">
+              <span className="mb-1 block text-xs font-medium text-slate-600">期間（依目前月份）</span>
+              <span className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800">
+                {monthRange.from} ～ {monthRange.to}
+              </span>
+            </label>
+            <label className="text-sm">
+              <span className="mb-1 block text-xs font-medium text-slate-600">員工（選填）</span>
+              <select
+                className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
+                value={exportEmployeeId}
+                onChange={(e) => setExportEmployeeId(e.target.value)}
+              >
+                <option value="">全部員工</option>
+                {employees.map((e) => (
+                  <option key={e.id} value={e.id}>
+                    {e.name}（{e.employee_no}）
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button
+              type="button"
+              onClick={openExportReport}
+              className="rounded-lg bg-sky-600 px-4 py-2 text-sm font-medium text-white hover:bg-sky-700"
+            >
+              開啟列印報表
+            </button>
+          </div>
+        </div>
 
         <div className="grid gap-4 sm:grid-cols-4">
           <StatCard label="今日紀錄" value={`${records.length} 筆`} />

@@ -4,7 +4,8 @@ const ADMIN_LINKS = [
   { href: "/schedules", label: "排班管理", icon: "🗓️", desc: "編輯班表、休診、發布" },
   { href: "/payroll", label: "薪資結算", icon: "💰", desc: "月薪資、規費總覽" },
   { href: "/employees", label: "員工管理", icon: "👥", desc: "時薪、勞健保設定" },
-  { href: "/clock-records", label: "打卡紀錄", icon: "📋", desc: "審核忘記打卡補登" },
+  { href: "/clock-records", label: "打卡紀錄", icon: "📋", desc: "審核、匯出列印" },
+  { href: "/clock-records/export", label: "出勤證明", icon: "🖨️", desc: "LIFF 打卡列印（勞保局）" },
   { href: "/leave", label: "特休管理", icon: "🏖️", desc: "特休登記與折現" },
 ] as const;
 

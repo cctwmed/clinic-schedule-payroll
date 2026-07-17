@@ -136,12 +136,20 @@ export async function fetchClockRecordsPageData(date?: string) {
     () => [] as CorrectionRequestRow[]
   );
 
+  const { data: employees } = await supabase
+    .from("employees")
+    .select("id, name, employee_no")
+    .eq("clinic_id", clinic.id)
+    .eq("status", "active")
+    .order("employee_no");
+
   return {
     clinic,
     date: targetDate,
     records: rows,
     pendingEarlyReview,
     pendingCorrections,
+    employees: employees ?? [],
   };
 }
 
@@ -212,6 +220,104 @@ export async function reviewForgotClockRequest(input: {
 }
 
 export type { CorrectionRequestRow };
+
+export interface ClockExportRow {
+  id: string;
+  employee_id: string;
+  employee_name: string;
+  employee_no: string;
+  clock_date: string;
+  clock_type: string;
+  clocked_at: string;
+  shift_name: string | null;
+  distance_from_clinic_m: number | null;
+  source: string;
+  validation: string;
+  is_manually_corrected: boolean;
+  note: string | null;
+  latitude: number | null;
+  longitude: number | null;
+}
+
+export async function fetchClockRecordsExportData(
+  fromDate: string,
+  toDate: string,
+  employeeId?: string | null
+) {
+  const clinic = await getDefaultClinic();
+
+  let query = supabase
+    .from("clock_records")
+    .select(
+      `
+      id,
+      employee_id,
+      clock_type,
+      clocked_at,
+      clock_date,
+      latitude,
+      longitude,
+      distance_from_clinic_m,
+      validation,
+      source,
+      is_manually_corrected,
+      note,
+      employees(name, employee_no),
+      shift_assignments(shift_types(name))
+    `
+    )
+    .gte("clock_date", fromDate)
+    .lte("clock_date", toDate)
+    .order("clock_date", { ascending: true })
+    .order("clocked_at", { ascending: true });
+
+  if (employeeId) {
+    query = query.eq("employee_id", employeeId);
+  }
+
+  const { data: records, error } = await query;
+  if (error) throw new Error(error.message);
+
+  const rows: ClockExportRow[] = (records ?? []).map((r) => {
+    const emp = parseJoin(r.employees) as { name?: string; employee_no?: string } | null;
+    const assign = parseJoin(r.shift_assignments) as { shift_types?: unknown } | null;
+    const shiftTypes = parseJoin(assign?.shift_types) as { name?: string } | null;
+
+    return {
+      id: r.id,
+      employee_id: r.employee_id,
+      employee_name: emp?.name ?? "—",
+      employee_no: emp?.employee_no ?? "",
+      clock_date: r.clock_date,
+      clock_type: r.clock_type,
+      clocked_at: r.clocked_at,
+      shift_name: shiftTypes?.name ?? null,
+      distance_from_clinic_m:
+        r.distance_from_clinic_m != null ? Number(r.distance_from_clinic_m) : null,
+      source: r.source,
+      validation: r.validation,
+      is_manually_corrected: Boolean(r.is_manually_corrected),
+      note: r.note,
+      latitude: r.latitude != null ? Number(r.latitude) : null,
+      longitude: r.longitude != null ? Number(r.longitude) : null,
+    };
+  });
+
+  const { data: employees } = await supabase
+    .from("employees")
+    .select("id, name, employee_no")
+    .eq("clinic_id", clinic.id)
+    .eq("status", "active")
+    .order("employee_no");
+
+  return {
+    clinic,
+    fromDate,
+    toDate,
+    rows,
+    employees: employees ?? [],
+  };
+}
 
 function parseJoin(raw: unknown): unknown {
   if (Array.isArray(raw)) return raw[0] ?? null;
