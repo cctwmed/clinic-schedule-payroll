@@ -10,6 +10,7 @@ import { calculateYearEndBonus } from "@/lib/payroll/year-end-bonus";
 import { GOLDEN_SCHEDULE } from "@/lib/shift-templates";
 import type { ClockEvent, WorkShiftBlock } from "@/lib/compliance/types";
 import type { LeavePayrollSummary } from "@/lib/payroll/leave-deductions";
+import type { EmployeeStatus } from "@/types/employee";
 
 export interface EmployeePayrollInput {
   id: string;
@@ -17,6 +18,8 @@ export interface EmployeePayrollInput {
   employeeNo: string;
   hireDate: string;
   resignDate?: string | null;
+  /** 在職／停職（育嬰懷孕）／離職；停職時薪資與診所負擔規費全歸零 */
+  status?: EmployeeStatus;
   hourlyWage: number;
   laborInsuranceSelfPay: number;
   healthInsuranceSelfPay: number;
@@ -42,6 +45,8 @@ export interface PayrollLineItem {
   employeeName: string;
   employeeNo: string;
   hireDate: string;
+  /** 停職（育嬰／懷孕）時薪資單與診所成本皆為 0 */
+  parentalLeaveSuspend: boolean;
   regularHours: number;
   overtimeHours: number;
   /** 院長手動追加之臨時加班時數（因公延長） */
@@ -128,6 +133,10 @@ export function clampQuarterlyBonus(amount: number): number {
 }
 
 export function recalcPayrollTotals(item: PayrollLineItem): PayrollLineItem {
+  if (item.parentalLeaveSuspend) {
+    return zeroOutParentalLeaveSuspend(item);
+  }
+
   const totalOtHours = round(item.overtimeHours + (item.manualOvertimeHours ?? 0));
   const otTier1 = Math.min(totalOtHours, 2);
   const otTier2 = Math.max(0, totalOtHours - 2);
@@ -144,7 +153,7 @@ export function recalcPayrollTotals(item: PayrollLineItem): PayrollLineItem {
   const grossPay = recurringGross + nonRecurringTotal;
   const employeeDeductions = round(item.laborInsurance + item.healthInsurance);
   const leaveDeductionTotal = round(item.leaveDeductionTotal ?? 0);
-  const netPay = grossPay - employeeDeductions - leaveDeductionTotal;
+  const netPay = Math.max(0, round(grossPay - employeeDeductions - leaveDeductionTotal));
   const clinicBurdenTotal = round(
     item.laborInsuranceEmployerPay +
       item.healthInsuranceEmployerPay +
@@ -170,9 +179,10 @@ export function recalcPayrollTotals(item: PayrollLineItem): PayrollLineItem {
     totalToStatePerEmployee,
     recurringGross: round(recurringGross),
     grossPay: round(grossPay),
-    netPay: round(netPay),
+    netPay,
     breakdown: {
       ...item.breakdown,
+      parentalLeaveSuspend: false,
       flexibleBonus: item.flexibleBonus,
       quarterlyBonus: item.quarterlyBonus,
       yearEndBonus: item.yearEndBonus,
@@ -194,6 +204,85 @@ export function recalcPayrollTotals(item: PayrollLineItem): PayrollLineItem {
       totalToStatePerEmployee,
       insuranceBase: CLINIC_PAYROLL.INSURANCE_REPORT_BASE,
       taxForm50NonRecurring: nonRecurringTotal,
+    },
+  };
+}
+
+/**
+ * 停職（育嬰／懷孕）：
+ * - 診所雇主勞保 70%、健保雇主、勞退 6% → 0（政府補助／停止提繳）
+ * - 員工本薪、津貼、自付勞健保扣款 → 0
+ * - 薪資單實領必須剛好 0，不可為負
+ */
+export function zeroOutParentalLeaveSuspend(item: PayrollLineItem): PayrollLineItem {
+  return {
+    ...item,
+    parentalLeaveSuspend: true,
+    regularHours: 0,
+    overtimeHours: 0,
+    manualOvertimeHours: 0,
+    overtimeHours2Tier: 0,
+    basePay: 0,
+    baseSalary: 0,
+    jobAllowance: 0,
+    fullAttendanceBonus: 0,
+    monthlyBaseSalary: 0,
+    overtimePay: 0,
+    flexibleBonus: 0,
+    quarterlyBonus: 0,
+    yearEndBonus: 0,
+    yearEndBonusCalculated: 0,
+    yearEndBonusOverridden: false,
+    annualLeavePayout: 0,
+    annualLeavePayoutDays: 0,
+    specialAttendanceDays: 0,
+    specialAttendancePay: 0,
+    holidayDoublePay: 0,
+    holidayOvertimePay: 0,
+    personalLeaveHours: 0,
+    personalLeaveDeduction: 0,
+    sickLeaveHours: 0,
+    sickLeaveDeduction: 0,
+    leaveDeductionTotal: 0,
+    nonRecurringTotal: 0,
+    laborInsurance: 0,
+    healthInsurance: 0,
+    laborInsuranceEmployerPay: 0,
+    healthInsuranceEmployerPay: 0,
+    laborPensionEmployerPay: 0,
+    employeeDeductions: 0,
+    clinicBurdenTotal: 0,
+    totalToStatePerEmployee: 0,
+    deductionTotal: 0,
+    recurringGross: 0,
+    grossPay: 0,
+    netPay: 0,
+    breakdown: {
+      ...item.breakdown,
+      parentalLeaveSuspend: true,
+      parentalLeaveNote:
+        "停職（育嬰／懷孕）：本薪／津貼／員工自付勞健保／雇主勞健保／勞退皆為 0；薪資單實領 0 元",
+      flexibleBonus: 0,
+      quarterlyBonus: 0,
+      yearEndBonus: 0,
+      manualOvertimeHours: 0,
+      personalLeaveHours: 0,
+      personalLeaveDeduction: 0,
+      sickLeaveHours: 0,
+      sickLeaveDeduction: 0,
+      leaveDeductionTotal: 0,
+      holidayDoublePay: 0,
+      holidayOvertimePay: 0,
+      nonRecurringTotal: 0,
+      recurringGross: 0,
+      employeeDeductions: 0,
+      laborInsuranceEmployerPay: 0,
+      healthInsuranceEmployerPay: 0,
+      laborPensionEmployerPay: 0,
+      clinicBurdenTotal: 0,
+      totalToStatePerEmployee: 0,
+      insuranceBase: 0,
+      taxForm50NonRecurring: 0,
     },
   };
 }
@@ -288,6 +377,7 @@ export function calculateEmployeePayroll(
     employeeName: employee.name,
     employeeNo: employee.employeeNo,
     hireDate: employee.hireDate,
+    parentalLeaveSuspend: employee.status === "inactive",
     regularHours: round(regularHours),
     overtimeHours: round(otTier1 + otTier2),
     manualOvertimeHours: 0,
@@ -363,6 +453,7 @@ export function calculateEmployeePayroll(
       sickLeaveDeduction: leavePay.sickLeaveDeduction,
       leaveDeductionTotal: leavePay.leaveDeductionTotal,
       fullPayLeaveHours: leavePay.fullPayLeaveHours,
+      employeeStatus: employee.status ?? "active",
     },
   };
 

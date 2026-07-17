@@ -9,6 +9,7 @@ import {
   JOB_TITLE_LABELS,
   ROLE_LABELS,
   showRelatedOwnerInsuranceTip,
+  STATUS_HINTS,
   STATUS_LABELS,
   type JobTitle,
 } from "@/types/employee";
@@ -397,6 +398,7 @@ export function EmployeeModal({ open, employee, onClose, onSuccess }: EmployeeMo
                     </option>
                   ))}
                 </select>
+                <p className="mt-1 text-xs text-slate-500">{STATUS_HINTS[form.status]}</p>
               </Field>
               <Field label="到職日（特休週年制起算）" required>
                 <input

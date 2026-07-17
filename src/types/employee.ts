@@ -110,8 +110,15 @@ export const ROLE_LABELS: Record<EmployeeRole, string> = {
 
 export const STATUS_LABELS: Record<EmployeeStatus, string> = {
   active: "在職",
-  inactive: "停職",
+  inactive: "停職（育嬰／懷孕）",
   resigned: "離職",
+};
+
+/** 狀態說明（表單提示用） */
+export const STATUS_HINTS: Record<EmployeeStatus, string> = {
+  active: "參與排班、打卡與算薪",
+  inactive: "保留資料，暫不排班／不算薪（育嬰、懷孕等）",
+  resigned: "保留歷史紀錄，不列入日常排班與算薪",
 };
 
 export const EMPLOYMENT_LABELS: Record<EmploymentType, string> = {

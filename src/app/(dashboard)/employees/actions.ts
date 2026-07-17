@@ -230,9 +230,15 @@ export async function fetchEmployees() {
   const { data, error } = await supabase
     .from("employees")
     .select("*")
-    .neq("status", "resigned")
     .order("employee_no", { ascending: true });
 
   if (error) throw new Error(error.message);
-  return data ?? [];
+
+  const rank: Record<string, number> = { active: 0, inactive: 1, resigned: 2 };
+  return (data ?? []).slice().sort((a, b) => {
+    const ra = rank[a.status] ?? 9;
+    const rb = rank[b.status] ?? 9;
+    if (ra !== rb) return ra - rb;
+    return String(a.employee_no).localeCompare(String(b.employee_no), "zh-Hant");
+  });
 }

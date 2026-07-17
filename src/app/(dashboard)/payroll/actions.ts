@@ -47,10 +47,10 @@ export async function fetchPayrollPageData(year: number, month: number) {
   const { data: employees, error: empError } = await supabase
     .from("employees")
     .select(
-      "id, name, employee_no, hire_date, resign_date, hourly_wage, labor_insurance_self_pay, health_insurance_self_pay, labor_insurance_employer_pay, health_insurance_employer_pay, labor_pension_employer_pay"
+      "id, name, employee_no, hire_date, resign_date, status, hourly_wage, labor_insurance_self_pay, health_insurance_self_pay, labor_insurance_employer_pay, health_insurance_employer_pay, labor_pension_employer_pay"
     )
     .eq("clinic_id", clinic.id)
-    .eq("status", "active")
+    .in("status", ["active", "inactive"])
     .order("employee_no");
 
   if (empError) throw new Error(empError.message);
@@ -135,6 +135,7 @@ export async function fetchPayrollPageData(year: number, month: number) {
         employeeNo: emp.employee_no,
         hireDate: emp.hire_date,
         resignDate: emp.resign_date,
+        status: (emp.status as "active" | "inactive" | "resigned") ?? "active",
         hourlyWage: Number(emp.hourly_wage),
         laborInsuranceSelfPay: Number(emp.labor_insurance_self_pay),
         healthInsuranceSelfPay: Number(emp.health_insurance_self_pay),

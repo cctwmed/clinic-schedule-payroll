@@ -96,6 +96,7 @@ export function PayrollPageClient({
     setLineItems((prev) =>
       prev.map((item) => {
         if (item.employeeId !== employeeId) return item;
+        if (item.parentalLeaveSuspend) return item;
         return recalcPayrollTotals({ ...item, ...patch });
       })
     );
@@ -501,10 +502,20 @@ export function PayrollPageClient({
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {lineItems.map((item) => (
-                      <tr key={item.employeeId} className="hover:bg-slate-50/80">
+                      <tr
+                        key={item.employeeId}
+                        className={`hover:bg-slate-50/80 ${
+                          item.parentalLeaveSuspend ? "bg-amber-50/70" : ""
+                        }`}
+                      >
                         <td className="px-3 py-3">
                           <p className="font-medium">{item.employeeName}</p>
                           <p className="text-xs text-slate-400">{item.employeeNo}</p>
+                          {item.parentalLeaveSuspend && (
+                            <span className="mt-1 inline-flex rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-800">
+                              停職（育嬰／懷孕）· 薪資與診所負擔 0 元
+                            </span>
+                          )}
                         </td>
                         <td className="px-3 py-3 text-slate-600">
                           {formatMoney(item.monthlyBaseSalary)}
@@ -526,10 +537,11 @@ export function PayrollPageClient({
                             step={0.5}
                             value={item.manualOvertimeHours || ""}
                             placeholder="0"
+                            disabled={item.parentalLeaveSuspend}
                             onChange={(e) =>
                               updateManualOvertime(item.employeeId, Number(e.target.value))
                             }
-                            className="w-20 rounded-lg border border-slate-200 px-2 py-1 text-sm"
+                            className="w-20 rounded-lg border border-slate-200 px-2 py-1 text-sm disabled:bg-slate-100 disabled:text-slate-400"
                             title="因公臨時延長工時，併入平日加班費"
                           />
                         </td>
@@ -551,10 +563,11 @@ export function PayrollPageClient({
                             step={100}
                             value={item.flexibleBonus || ""}
                             placeholder={`${GOLDEN_SCHEDULE.FLEXIBLE_BONUS_MIN}–${GOLDEN_SCHEDULE.FLEXIBLE_BONUS_MAX}`}
+                            disabled={item.parentalLeaveSuspend}
                             onChange={(e) =>
                               updateFlexibleBonus(item.employeeId, Number(e.target.value))
                             }
-                            className="w-24 rounded-lg border border-slate-200 px-2 py-1 text-sm"
+                            className="w-24 rounded-lg border border-slate-200 px-2 py-1 text-sm disabled:bg-slate-100 disabled:text-slate-400"
                           />
                         </td>
                         {isQuarterlyMonth && (
