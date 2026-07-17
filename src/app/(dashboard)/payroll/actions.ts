@@ -126,7 +126,8 @@ export async function fetchPayrollPageData(year: number, month: number) {
     const leavePayroll = summarizeLeavePayroll(
       approvedLeaves,
       emp.id,
-      Number(emp.hourly_wage)
+      Number(emp.hourly_wage),
+      emp.hire_date
     );
     return calculateEmployeePayroll(
       {

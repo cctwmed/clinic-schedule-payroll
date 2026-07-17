@@ -399,6 +399,12 @@ export function EmployeeModal({ open, employee, onClose, onSuccess }: EmployeeMo
                   ))}
                 </select>
                 <p className="mt-1 text-xs text-slate-500">{STATUS_HINTS[form.status]}</p>
+                {form.status === "active" && (
+                  <p className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-2 text-xs leading-relaxed text-amber-900">
+                    防呆提醒：若員工請完「產假」後需銜接「育嬰留職停薪」，請再手動將狀態改為
+                    「停職（育嬰／懷孕）」，系統才會切換為政府補助免繳（雇主勞健保／勞退歸零）模式。產假期間請維持「在職」。
+                  </p>
+                )}
               </Field>
               <Field label="到職日（特休週年制起算）" required>
                 <input

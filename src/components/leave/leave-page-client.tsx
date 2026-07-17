@@ -13,6 +13,7 @@ import {
   HOURS_PER_LEAVE_DAY,
   LEAVE_TYPE_DEFINITIONS,
   LEAVE_TYPE_OPTIONS,
+  leavePayLabel,
   leaveTypeLabel,
   type LeaveRecordType,
 } from "@/lib/leave/leave-types";
@@ -351,11 +352,15 @@ export function LeavePageClient({
                       <td className="px-4 py-3">{r.work_date}</td>
                       <td className="px-4 py-3">{r.total_hours}h</td>
                       <td className="px-4 py-3 text-xs text-slate-500">
-                        {LEAVE_TYPE_DEFINITIONS[r.leave_type].payRatio === 1
-                          ? "全薪"
-                          : r.leave_type === "sick"
-                            ? "半薪扣款"
-                            : "不給薪扣款"}
+                        {r.leave_type === "maternity"
+                          ? leavePayLabel(r.leave_type)
+                          : r.leave_type === "pregnancy_rest"
+                            ? "不給薪（在職／勞健保持續）"
+                            : LEAVE_TYPE_DEFINITIONS[r.leave_type].payRatio === 1
+                              ? "全薪"
+                              : r.leave_type === "sick"
+                                ? "半薪扣款"
+                                : "不給薪扣款"}
                       </td>
                       <td className="px-4 py-3">{STATUS_LABELS[r.status]}</td>
                     </tr>

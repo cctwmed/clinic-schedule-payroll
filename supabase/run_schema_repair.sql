@@ -141,3 +141,32 @@ CREATE INDEX IF NOT EXISTS idx_clock_early_abnormal
   WHERE is_early_abnormal = true AND clock_type = 'clock_in';
 
 NOTIFY pgrst, 'reload schema';
+
+-- ---------- 019：產假／安胎假 enum ----------
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_enum e
+    JOIN pg_type t ON e.enumtypid = t.oid
+    WHERE t.typname = 'leave_record_type' AND e.enumlabel = 'maternity'
+  ) THEN
+    ALTER TYPE leave_record_type ADD VALUE 'maternity';
+  END IF;
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_enum e
+    JOIN pg_type t ON e.enumtypid = t.oid
+    WHERE t.typname = 'leave_record_type' AND e.enumlabel = 'pregnancy_rest'
+  ) THEN
+    ALTER TYPE leave_record_type ADD VALUE 'pregnancy_rest';
+  END IF;
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END $$;
+
+NOTIFY pgrst, 'reload schema';
