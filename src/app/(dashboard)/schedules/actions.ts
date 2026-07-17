@@ -30,6 +30,11 @@ import {
 } from "@/lib/schedules/golden-config";
 import { generateGoldenMonthSchedule } from "@/lib/schedules/golden-rotation";
 import { validateSameDayAssignment } from "@/lib/schedules/assignment-validation";
+import {
+  CHILD_LABOR_NIGHT_SHIFT_ERROR,
+  resolveAgeCompliance,
+  shiftViolatesChildLaborNightHours,
+} from "@/lib/employee/age-compliance";
 import { listTaiwanPublicHolidaysInRange } from "@/lib/holidays/taiwan-public-holidays";
 
 export async function fetchSchedulePageData(year: number, month: number) {
@@ -48,7 +53,7 @@ export async function fetchSchedulePageData(year: number, month: number) {
       .order("sort_order"),
     supabase
       .from("employees")
-      .select("id, name, employee_no, job_title")
+      .select("id, name, employee_no, job_title, birth_date, is_child_laborer")
       .eq("clinic_id", clinic.id)
       .eq("status", "active")
       .order("employee_no"),
@@ -191,6 +196,37 @@ async function validateAssignmentConflict(
   );
 }
 
+async function validateChildLaborNightShift(
+  employeeId: string,
+  expectedClockIn: string,
+  expectedClockOut: string,
+  shiftCode: string
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  if (shiftCode === "STATUTORY" || shiftCode === "REST" || shiftCode === "ANNUAL_LEAVE" || shiftCode === "CLOSED") {
+    return { ok: true };
+  }
+
+  const { data: emp, error } = await supabase
+    .from("employees")
+    .select("birth_date, national_id, is_child_laborer")
+    .eq("id", employeeId)
+    .maybeSingle();
+
+  if (error || !emp) return { ok: true };
+
+  const isChild =
+    emp.is_child_laborer ||
+    resolveAgeCompliance(emp.birth_date, emp.national_id).isChildLaborer;
+
+  if (!isChild) return { ok: true };
+
+  if (shiftViolatesChildLaborNightHours(expectedClockIn, expectedClockOut)) {
+    return { ok: false, error: CHILD_LABOR_NIGHT_SHIFT_ERROR };
+  }
+
+  return { ok: true };
+}
+
 export async function saveScheduleAssignment(
   scheduleId: string,
   workDate: string,
@@ -230,6 +266,22 @@ export async function saveScheduleAssignment(
   );
   if (!conflict.ok) {
     return { success: false as const, error: conflict.error };
+  }
+
+  const { data: shiftMeta } = await supabase
+    .from("shift_types")
+    .select("code")
+    .eq("id", shiftTypeId)
+    .maybeSingle();
+
+  const childCheck = await validateChildLaborNightShift(
+    employeeId,
+    expectedClockIn,
+    expectedClockOut,
+    shiftMeta?.code ?? ""
+  );
+  if (!childCheck.ok) {
+    return { success: false as const, error: childCheck.error };
   }
 
   const { data: existing } = await supabase

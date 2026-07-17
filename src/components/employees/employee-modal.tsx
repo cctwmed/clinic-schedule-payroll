@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import { createEmployee, updateEmployee } from "@/app/(dashboard)/employees/actions";
 import type { Employee, EmployeeFormData } from "@/types/employee";
 import {
@@ -8,24 +8,36 @@ import {
   EMPLOYMENT_LABELS,
   JOB_TITLE_LABELS,
   ROLE_LABELS,
+  showRelatedOwnerInsuranceTip,
   STATUS_LABELS,
   type JobTitle,
 } from "@/types/employee";
 import {
+  formatAgeDisplay,
+  getUnder15WarningMessage,
+  resolveAgeCompliance,
+} from "@/lib/employee/age-compliance";
+import {
   applyInsuranceBracket,
   formatInsuredSalaryLabel,
+  FULL_TIME_INSURANCE_BRACKETS,
   getInsuranceBracket,
   guessInsuranceBracket,
-  INSURANCE_BRACKETS,
+  HEALTH_ENROLLMENT_LABELS,
   INSURANCE_BRACKET_YEAR,
+  PART_TIME_INSURANCE_BRACKETS,
+  type HealthInsuranceEnrollment,
 } from "@/lib/payroll/insurance-brackets";
 
 function resolveJobTitle(raw: string | null | undefined): JobTitle {
   if (raw === "nurse_lead") return "nurse_fulltime";
-  if (raw && raw in JOB_TITLE_LABELS) {
-    return raw as JobTitle;
-  }
+  if (raw && raw in JOB_TITLE_LABELS) return raw as JobTitle;
   return "nurse_fulltime";
+}
+
+function resolveHealthEnrollment(raw: string | null | undefined): HealthInsuranceEnrollment {
+  if (raw === "dependent" || raw === "none" || raw === "clinic") return raw;
+  return "clinic";
 }
 
 interface EmployeeModalProps {
@@ -40,9 +52,17 @@ export function EmployeeModal({ open, employee, onClose, onSuccess }: EmployeeMo
   const [form, setForm] = useState<EmployeeFormData>(EMPTY_EMPLOYEE_FORM);
   const [insuredSalary, setInsuredSalary] = useState<number | "">("");
   const [error, setError] = useState<string | null>(null);
+  const [saveNotice, setSaveNotice] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
   const isAdminRole = form.role === "admin";
+
+  const ageCompliance = useMemo(
+    () => resolveAgeCompliance(form.birth_date, form.national_id),
+    [form.birth_date, form.national_id]
+  );
+
+  const showOwnerTip = showRelatedOwnerInsuranceTip(form);
 
   useEffect(() => {
     if (!open) return;
@@ -58,6 +78,10 @@ export function EmployeeModal({ open, employee, onClose, onSuccess }: EmployeeMo
         email: employee.email ?? "",
         phone: employee.phone ?? "",
         hire_date: employee.hire_date,
+        birth_date: employee.birth_date ?? "",
+        national_id: employee.national_id ?? "",
+        health_insurance_enrollment: resolveHealthEnrollment(employee.health_insurance_enrollment),
+        is_related_to_owner: Boolean(employee.is_related_to_owner),
         hourly_wage: Number(employee.hourly_wage),
         labor_insurance_self_pay: Number(employee.labor_insurance_self_pay),
         health_insurance_self_pay: Number(employee.health_insurance_self_pay),
@@ -79,6 +103,7 @@ export function EmployeeModal({ open, employee, onClose, onSuccess }: EmployeeMo
       setInsuredSalary("");
     }
     setError(null);
+    setSaveNotice(null);
   }, [open, employee]);
 
   if (!open) return null;
@@ -95,6 +120,13 @@ export function EmployeeModal({ open, employee, onClose, onSuccess }: EmployeeMo
     }));
   }
 
+  function applyBracketToForm(salary: number, enrollment: HealthInsuranceEnrollment) {
+    const bracket = getInsuranceBracket(salary);
+    if (bracket) {
+      setForm((prev) => ({ ...prev, ...applyInsuranceBracket(bracket, enrollment) }));
+    }
+  }
+
   function handleInsuredSalaryChange(value: string) {
     if (!value) {
       setInsuredSalary("");
@@ -102,18 +134,46 @@ export function EmployeeModal({ open, employee, onClose, onSuccess }: EmployeeMo
     }
     const salary = Number(value);
     setInsuredSalary(salary);
-    const bracket = getInsuranceBracket(salary);
-    if (bracket) {
-      setForm((prev) => ({ ...prev, ...applyInsuranceBracket(bracket) }));
+    applyBracketToForm(salary, form.health_insurance_enrollment);
+  }
+
+  function handleHealthEnrollmentChange(enrollment: HealthInsuranceEnrollment) {
+    updateField("health_insurance_enrollment", enrollment);
+    if (insuredSalary !== "") {
+      applyBracketToForm(insuredSalary, enrollment);
+    } else if (enrollment !== "clinic") {
+      setForm((prev) => ({
+        ...prev,
+        health_insurance_self_pay: 0,
+        health_insurance_employer_pay: 0,
+      }));
     }
   }
 
-  function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
+  function handleNationalIdChange(value: string) {
+    const upper = value.toUpperCase();
+    setForm((prev) => {
+      const parsed = resolveAgeCompliance(prev.birth_date, upper);
+      return {
+        ...prev,
+        national_id: upper,
+        birth_date: !prev.birth_date && parsed.birthDate ? parsed.birthDate : prev.birth_date,
+      };
+    });
+  }
+
+  function submitForm(skipUnder15Confirm = false) {
+    if (ageCompliance.status === "under_15" && !skipUnder15Confirm) {
+      const ok = window.confirm(`${getUnder15WarningMessage()}\n\n仍要儲存此員工資料嗎？`);
+      if (!ok) return;
+    }
+
     setError(null);
+    setSaveNotice(null);
 
     const payload: EmployeeFormData = {
       ...form,
+      birth_date: ageCompliance.birthDate ?? form.birth_date,
       is_clinic_admin: form.role === "admin" ? true : form.is_clinic_admin,
     };
 
@@ -127,9 +187,27 @@ export function EmployeeModal({ open, employee, onClose, onSuccess }: EmployeeMo
         return;
       }
 
+      if (result.isChildLaborer) {
+        setSaveNotice("已標記為童工（15–16 歲）。排班系統將禁止 20:00–06:00 時段。");
+        setTimeout(() => {
+          onSuccess();
+          onClose();
+        }, 1800);
+        return;
+      }
+
+      if (result.warning) {
+        alert(result.warning);
+      }
+
       onSuccess();
       onClose();
     });
+  }
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    submitForm(false);
   }
 
   return (
@@ -153,6 +231,24 @@ export function EmployeeModal({ open, employee, onClose, onSuccess }: EmployeeMo
           {error && (
             <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
               {error}
+            </div>
+          )}
+
+          {saveNotice && (
+            <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+              {saveNotice}
+            </div>
+          )}
+
+          {ageCompliance.status === "under_15" && (
+            <div className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+              {getUnder15WarningMessage()}
+            </div>
+          )}
+
+          {ageCompliance.status === "child_laborer" && (
+            <div className="rounded-lg border border-orange-200 bg-orange-50 px-4 py-3 text-sm text-orange-900">
+              此同仁為童工（15–16 歲），儲存後將標記並禁止排入 20:00–06:00 診班。
             </div>
           )}
 
@@ -180,6 +276,33 @@ export function EmployeeModal({ open, employee, onClose, onSuccess }: EmployeeMo
                   placeholder="例如：王護理師"
                 />
               </Field>
+              <Field label="生日">
+                <input
+                  type="date"
+                  className={inputClass}
+                  value={form.birth_date}
+                  onChange={(e) => updateField("birth_date", e.target.value)}
+                />
+              </Field>
+              <Field label="身分證字號（選填，可自動推算生日）">
+                <input
+                  className={inputClass}
+                  value={form.national_id}
+                  onChange={(e) => handleNationalIdChange(e.target.value.toUpperCase())}
+                  placeholder="選填，僅供年齡檢核"
+                  maxLength={10}
+                />
+              </Field>
+              {ageCompliance.age != null && (
+                <div className="sm:col-span-2 rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-600">
+                  目前年齡：<span className="font-semibold text-slate-900">{formatAgeDisplay(ageCompliance)}</span>
+                  {ageCompliance.isChildLaborer && (
+                    <span className="ml-2 rounded-full bg-orange-100 px-2 py-0.5 text-xs font-medium text-orange-800">
+                      童工
+                    </span>
+                  )}
+                </div>
+              )}
               <Field label="診所職稱" required>
                 <select
                   className={inputClass}
@@ -207,6 +330,17 @@ export function EmployeeModal({ open, employee, onClose, onSuccess }: EmployeeMo
                 </select>
               </Field>
               <div className="sm:col-span-2">
+                <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-slate-200 bg-slate-50/80 px-4 py-3">
+                  <input
+                    type="checkbox"
+                    checked={form.is_related_to_owner}
+                    onChange={(e) => updateField("is_related_to_owner", e.target.checked)}
+                    className="mt-0.5 h-4 w-4 rounded border-slate-300 text-emerald-600"
+                  />
+                  <span className="text-sm text-slate-700">與診所負責人為直系血親關係</span>
+                </label>
+              </div>
+              <div className="sm:col-span-2">
                 <label
                   className={`flex items-start gap-3 rounded-xl border px-4 py-3 ${
                     isAdminRole
@@ -231,7 +365,7 @@ export function EmployeeModal({ open, employee, onClose, onSuccess }: EmployeeMo
                       )}
                     </span>
                     <span className="mt-0.5 block text-xs text-slate-500">
-                      勾選後，此員工在 LINE 打卡頁可使用「管理員」分頁（審核、排班、薪資等後台連結）
+                      勾選後，此員工在 LINE 打卡頁可使用「管理員」分頁
                     </span>
                   </span>
                 </label>
@@ -294,25 +428,58 @@ export function EmployeeModal({ open, employee, onClose, onSuccess }: EmployeeMo
 
           <section>
             <h4 className="mb-3 text-sm font-semibold text-slate-700">薪資與保險</h4>
-            <div className="mb-4">
-              <Field label={`投保薪資級距（${INSURANCE_BRACKET_YEAR} 年表，投保薪資）`}>
+
+            {showOwnerTip && (
+              <p className="mb-4 rounded-lg border border-sky-100 bg-sky-50 px-3 py-2 text-xs leading-relaxed text-sky-900">
+                💡 溫馨提示：直系血親於獨資診所工作加保勞保時，請務必保留實際打卡紀錄（可匯出 LIFF
+                打卡單）與薪資轉帳證明，以利勞保局查核僱用事實。
+              </p>
+            )}
+
+            <div className="mb-4 grid gap-4 sm:grid-cols-2">
+              <Field label={`投保薪資級距（${INSURANCE_BRACKET_YEAR} 年表）`}>
                 <select
                   className={inputClass}
                   value={insuredSalary === "" ? "" : String(insuredSalary)}
                   onChange={(e) => handleInsuredSalaryChange(e.target.value)}
                 >
                   <option value="">— 手動輸入或選擇級距 —</option>
-                  {INSURANCE_BRACKETS.map((b) => (
-                    <option key={b.insuredSalary} value={b.insuredSalary}>
-                      {formatInsuredSalaryLabel(b.insuredSalary)}
+                  <optgroup label="部分工時（低於基本工資 $29,500，工讀/兼職）">
+                    {PART_TIME_INSURANCE_BRACKETS.map((b) => (
+                      <option key={b.insuredSalary} value={b.insuredSalary}>
+                        {formatInsuredSalaryLabel(b.insuredSalary, "part_time")}
+                      </option>
+                    ))}
+                  </optgroup>
+                  <optgroup label="全職（$29,500 – $45,800，共 11 級）">
+                    {FULL_TIME_INSURANCE_BRACKETS.map((b) => (
+                      <option key={b.insuredSalary} value={b.insuredSalary}>
+                        {formatInsuredSalaryLabel(b.insuredSalary, "full_time")}
+                      </option>
+                    ))}
+                  </optgroup>
+                </select>
+              </Field>
+              <Field label="健保投保方式">
+                <select
+                  className={inputClass}
+                  value={form.health_insurance_enrollment}
+                  onChange={(e) =>
+                    handleHealthEnrollmentChange(e.target.value as HealthInsuranceEnrollment)
+                  }
+                >
+                  {Object.entries(HEALTH_ENROLLMENT_LABELS).map(([value, label]) => (
+                    <option key={value} value={value}>
+                      {label}
                     </option>
                   ))}
                 </select>
               </Field>
-              <p className="mt-1 text-xs text-slate-500">
-                選取級距後，勞健保個人自付、雇主負擔與勞退 6% 將自動帶入（仍可微調）。
-              </p>
             </div>
+            <p className="mb-4 text-xs text-slate-500">
+              選取級距後，勞保、勞退與健保（依投保方式）將自動帶入；工讀生若健保掛父母名下，請選「眷屬依附／不在此投保」。
+            </p>
+
             <div className="grid gap-4 sm:grid-cols-3">
               <Field label="時薪（NT$）" required>
                 <input
@@ -345,6 +512,7 @@ export function EmployeeModal({ open, employee, onClose, onSuccess }: EmployeeMo
                   value={form.health_insurance_self_pay || ""}
                   onChange={(e) => updateField("health_insurance_self_pay", Number(e.target.value))}
                   placeholder="依級距"
+                  disabled={form.health_insurance_enrollment !== "clinic"}
                 />
               </Field>
             </div>
@@ -373,6 +541,7 @@ export function EmployeeModal({ open, employee, onClose, onSuccess }: EmployeeMo
                     updateField("health_insurance_employer_pay", Number(e.target.value))
                   }
                   placeholder="依級距"
+                  disabled={form.health_insurance_enrollment !== "clinic"}
                 />
               </Field>
               <Field label="勞退雇主提繳 6%（NT$）">
@@ -389,9 +558,6 @@ export function EmployeeModal({ open, employee, onClose, onSuccess }: EmployeeMo
                 />
               </Field>
             </div>
-            <p className="mt-2 text-xs text-slate-500">
-              個人自付額於薪資結算時自實領扣除；雇主負擔與勞退列入診所規費及應繳政府總額。
-            </p>
           </section>
 
           <div className="flex justify-end gap-3 border-t border-slate-200 pt-4">
@@ -437,4 +603,4 @@ function Field({
 }
 
 const inputClass =
-  "w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100";
+  "w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:bg-slate-100 disabled:text-slate-500";

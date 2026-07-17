@@ -1,3 +1,5 @@
+import type { HealthInsuranceEnrollment } from "@/lib/payroll/insurance-brackets";
+
 export type EmployeeRole = "nurse" | "admin" | "doctor" | "staff";
 export type EmployeeStatus = "active" | "inactive" | "resigned";
 export type EmploymentType = "full_time" | "part_time" | "contract";
@@ -8,6 +10,7 @@ export type JobTitle =
   | "pharmacist"
   | "admin_staff"
   | "cleaner"
+  | "family_assistant"
   | "other";
 
 export interface Employee {
@@ -23,6 +26,11 @@ export interface Employee {
   phone: string | null;
   hire_date: string;
   arrival_date?: string | null;
+  birth_date?: string | null;
+  national_id?: string | null;
+  health_insurance_enrollment?: HealthInsuranceEnrollment | string | null;
+  is_related_to_owner?: boolean;
+  is_child_laborer?: boolean;
   hourly_wage: number;
   labor_insurance_self_pay: number;
   health_insurance_self_pay: number;
@@ -46,6 +54,10 @@ export interface EmployeeFormData {
   email: string;
   phone: string;
   hire_date: string;
+  birth_date: string;
+  national_id: string;
+  health_insurance_enrollment: HealthInsuranceEnrollment;
+  is_related_to_owner: boolean;
   hourly_wage: number;
   labor_insurance_self_pay: number;
   health_insurance_self_pay: number;
@@ -61,6 +73,7 @@ export const JOB_TITLE_LABELS: Record<JobTitle, string> = {
   pharmacist: "藥師",
   admin_staff: "行政",
   cleaner: "打掃",
+  family_assistant: "家屬/協助人員",
   other: "其他",
 };
 
@@ -81,6 +94,13 @@ export function displayJobTitle(jobTitle: JobTitle | string | null | undefined, 
   return ROLE_LABELS[role];
 }
 
+export function showRelatedOwnerInsuranceTip(form: {
+  job_title: JobTitle | string;
+  is_related_to_owner: boolean;
+}): boolean {
+  return form.job_title === "family_assistant" || form.is_related_to_owner;
+}
+
 export const ROLE_LABELS: Record<EmployeeRole, string> = {
   nurse: "護理師",
   admin: "管理員",
@@ -96,7 +116,7 @@ export const STATUS_LABELS: Record<EmployeeStatus, string> = {
 
 export const EMPLOYMENT_LABELS: Record<EmploymentType, string> = {
   full_time: "全職",
-  part_time: "兼職",
+  part_time: "兼職/工讀",
   contract: "約聘",
 };
 
@@ -110,6 +130,10 @@ export const EMPTY_EMPLOYEE_FORM: EmployeeFormData = {
   email: "",
   phone: "",
   hire_date: new Date().toISOString().slice(0, 10),
+  birth_date: "",
+  national_id: "",
+  health_insurance_enrollment: "clinic",
+  is_related_to_owner: false,
   hourly_wage: 0,
   labor_insurance_self_pay: 0,
   health_insurance_self_pay: 0,

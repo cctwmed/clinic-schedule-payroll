@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { supabase } from "@/lib/supabase";
+import { resolveAgeCompliance } from "@/lib/employee/age-compliance";
 import type { EmployeeFormData } from "@/types/employee";
 
 async function getDefaultClinicId(): Promise<string> {
@@ -43,21 +44,49 @@ function validateForm(form: EmployeeFormData): string | null {
   return null;
 }
 
+function isMissingColumn(message: string, column: string): boolean {
+  return message.includes(column) && message.includes("schema cache");
+}
+
 function isMissingArrivalDateColumn(message: string): boolean {
-  return message.includes("arrival_date") && message.includes("schema cache");
+  return isMissingColumn(message, "arrival_date");
 }
 
 function isMissingClinicAdminColumn(message: string): boolean {
-  return message.includes("is_clinic_admin") && message.includes("schema cache");
+  return isMissingColumn(message, "is_clinic_admin");
 }
 
-function toPayload(
-  form: EmployeeFormData,
-  clinicId: string,
-  includeJobTitle = true,
-  includeArrivalDate = true,
-  includeClinicAdmin = true
-) {
+function isMissingJobTitleColumn(message: string): boolean {
+  return isMissingColumn(message, "job_title");
+}
+
+function isMissingAgeInsuranceColumn(message: string): boolean {
+  return (
+    isMissingColumn(message, "birth_date") ||
+    isMissingColumn(message, "national_id") ||
+    isMissingColumn(message, "health_insurance_enrollment") ||
+    isMissingColumn(message, "is_related_to_owner") ||
+    isMissingColumn(message, "is_child_laborer")
+  );
+}
+
+type PayloadFlags = {
+  jobTitle: boolean;
+  arrivalDate: boolean;
+  clinicAdmin: boolean;
+  ageInsurance: boolean;
+};
+
+const ALL_FLAGS: PayloadFlags = {
+  jobTitle: true,
+  arrivalDate: true,
+  clinicAdmin: true,
+  ageInsurance: true,
+};
+
+function toPayload(form: EmployeeFormData, clinicId: string, flags: PayloadFlags = ALL_FLAGS) {
+  const compliance = resolveAgeCompliance(form.birth_date, form.national_id);
+
   const payload: Record<string, unknown> = {
     clinic_id: clinicId,
     employee_no: form.employee_no.trim(),
@@ -75,20 +104,76 @@ function toPayload(
     health_insurance_employer_pay: form.health_insurance_employer_pay,
     labor_pension_employer_pay: form.labor_pension_employer_pay,
   };
-  if (includeArrivalDate) {
-    payload.arrival_date = form.hire_date;
-  }
-  if (includeJobTitle) {
-    payload.job_title = form.job_title;
-  }
-  if (includeClinicAdmin) {
+
+  if (flags.arrivalDate) payload.arrival_date = form.hire_date;
+  if (flags.jobTitle) payload.job_title = form.job_title;
+  if (flags.clinicAdmin) {
     payload.is_clinic_admin = form.role === "admin" ? true : form.is_clinic_admin;
   }
+  if (flags.ageInsurance) {
+    payload.birth_date = compliance.birthDate;
+    payload.national_id = form.national_id.trim() || null;
+    payload.health_insurance_enrollment = form.health_insurance_enrollment;
+    payload.is_related_to_owner = form.is_related_to_owner;
+    payload.is_child_laborer = compliance.isChildLaborer;
+  }
+
   return payload;
 }
 
-function isMissingJobTitleColumn(message: string): boolean {
-  return message.includes("job_title") && message.includes("schema cache");
+function stripFlag(message: string, flags: PayloadFlags, key: keyof PayloadFlags): PayloadFlags {
+  if (isMissingJobTitleColumn(message) && key === "jobTitle") return { ...flags, jobTitle: false };
+  if (isMissingArrivalDateColumn(message) && key === "arrivalDate") return { ...flags, arrivalDate: false };
+  if (isMissingClinicAdminColumn(message) && key === "clinicAdmin") return { ...flags, clinicAdmin: false };
+  if (isMissingAgeInsuranceColumn(message) && key === "ageInsurance") return { ...flags, ageInsurance: false };
+  return flags;
+}
+
+async function persistEmployee(
+  mode: "insert" | "update",
+  form: EmployeeFormData,
+  clinicId: string,
+  id?: string
+) {
+  let flags = { ...ALL_FLAGS };
+  let payload = toPayload(form, clinicId, flags);
+
+  for (let attempt = 0; attempt < 8; attempt++) {
+    const result =
+      mode === "insert"
+        ? await supabase.from("employees").insert(payload)
+        : await supabase.from("employees").update(payload).eq("id", id!);
+
+    if (!result.error) return { error: null as null };
+
+    const msg = result.error.message;
+    const prev = { ...flags };
+    if (isMissingJobTitleColumn(msg)) flags = stripFlag(msg, flags, "jobTitle");
+    if (isMissingArrivalDateColumn(msg)) flags = stripFlag(msg, flags, "arrivalDate");
+    if (isMissingClinicAdminColumn(msg)) flags = stripFlag(msg, flags, "clinicAdmin");
+    if (isMissingAgeInsuranceColumn(msg)) flags = stripFlag(msg, flags, "ageInsurance");
+
+    if (JSON.stringify(prev) === JSON.stringify(flags)) {
+      return { error: result.error };
+    }
+    payload = toPayload(form, clinicId, flags);
+  }
+
+  return { error: { message: "儲存失敗" } as { message: string } };
+}
+
+function buildSaveResult(form: EmployeeFormData) {
+  const compliance = resolveAgeCompliance(form.birth_date, form.national_id);
+
+  return {
+    success: true as const,
+    warning:
+      compliance.status === "under_15"
+        ? "⚠️ 提醒：同仁未滿 15 歲，依法非經主管機關許可不得僱用，且無法直接申報勞保。"
+        : undefined,
+    isChildLaborer: compliance.isChildLaborer,
+    age: compliance.age,
+  };
 }
 
 export async function createEmployee(form: EmployeeFormData) {
@@ -97,33 +182,17 @@ export async function createEmployee(form: EmployeeFormData) {
 
   try {
     const clinicId = await getDefaultClinicId();
-    let { error } = await supabase.from("employees").insert(toPayload(form, clinicId));
-
-    if (error && isMissingJobTitleColumn(error.message)) {
-      ({ error } = await supabase.from("employees").insert(toPayload(form, clinicId, false)));
-    }
-
-    if (error && isMissingArrivalDateColumn(error.message)) {
-      ({ error } = await supabase.from("employees").insert(toPayload(form, clinicId, true, false)));
-    }
-
-    if (error && isMissingJobTitleColumn(error.message) && isMissingArrivalDateColumn(error.message)) {
-      ({ error } = await supabase.from("employees").insert(toPayload(form, clinicId, false, false)));
-    }
-
-    if (error && isMissingClinicAdminColumn(error.message)) {
-      ({ error } = await supabase.from("employees").insert(toPayload(form, clinicId, true, true, false)));
-    }
+    const { error } = await persistEmployee("insert", form, clinicId);
 
     if (error) {
-      if (error.code === "23505") {
+      if ("code" in error && error.code === "23505") {
         return { success: false as const, error: "員工編號已存在，請改用其他編號" };
       }
       return { success: false as const, error: error.message };
     }
 
     revalidatePath("/employees");
-    return { success: true as const };
+    return buildSaveResult(form);
   } catch (err) {
     return {
       success: false as const,
@@ -138,48 +207,17 @@ export async function updateEmployee(id: string, form: EmployeeFormData) {
 
   try {
     const clinicId = await getDefaultClinicId();
-    let { error } = await supabase
-      .from("employees")
-      .update(toPayload(form, clinicId))
-      .eq("id", id);
-
-    if (error && isMissingJobTitleColumn(error.message)) {
-      ({ error } = await supabase
-        .from("employees")
-        .update(toPayload(form, clinicId, false))
-        .eq("id", id));
-    }
-
-    if (error && isMissingArrivalDateColumn(error.message)) {
-      ({ error } = await supabase
-        .from("employees")
-        .update(toPayload(form, clinicId, true, false))
-        .eq("id", id));
-    }
-
-    if (error && isMissingJobTitleColumn(error.message) && isMissingArrivalDateColumn(error.message)) {
-      ({ error } = await supabase
-        .from("employees")
-        .update(toPayload(form, clinicId, false, false))
-        .eq("id", id));
-    }
-
-    if (error && isMissingClinicAdminColumn(error.message)) {
-      ({ error } = await supabase
-        .from("employees")
-        .update(toPayload(form, clinicId, true, true, false))
-        .eq("id", id));
-    }
+    const { error } = await persistEmployee("update", form, clinicId, id);
 
     if (error) {
-      if (error.code === "23505") {
+      if ("code" in error && error.code === "23505") {
         return { success: false as const, error: "員工編號已存在，請改用其他編號" };
       }
       return { success: false as const, error: error.message };
     }
 
     revalidatePath("/employees");
-    return { success: true as const };
+    return buildSaveResult(form);
   } catch (err) {
     return {
       success: false as const,

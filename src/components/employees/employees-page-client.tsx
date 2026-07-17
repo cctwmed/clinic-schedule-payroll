@@ -80,7 +80,16 @@ export function EmployeesPageClient({ employees }: { employees: Employee[] }) {
                   {employees.map((employee) => (
                     <tr key={employee.id} className="hover:bg-slate-50/80">
                       <td className="px-4 py-3 font-medium text-slate-900">{employee.employee_no}</td>
-                      <td className="px-4 py-3 text-slate-800">{employee.name}</td>
+                      <td className="px-4 py-3">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <span>{employee.name}</span>
+                          {employee.is_child_laborer && (
+                            <span className="inline-flex rounded-full bg-orange-100 px-2 py-0.5 text-xs font-medium text-orange-800">
+                              童工
+                            </span>
+                          )}
+                        </div>
+                      </td>
                       <td className="px-4 py-3">
                         <span className="inline-flex rounded-full bg-sky-100 px-2.5 py-0.5 text-xs font-medium text-sky-700">
                           {displayJobTitle(employee.job_title, employee.role)}
