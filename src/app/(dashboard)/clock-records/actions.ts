@@ -18,10 +18,7 @@ export async function fetchClockRecordsPageData(date?: string) {
   const clinic = await getDefaultClinic();
   const targetDate = date ?? taipeiToday();
 
-  const { data: records, error } = await supabase
-    .from("clock_records")
-    .select(
-      `
+  const fullSelect = `
       id,
       employee_id,
       assignment_id,
@@ -50,12 +47,60 @@ export async function fetchClockRecordsPageData(date?: string) {
       early_reviewed_at,
       employees(name, employee_no),
       shift_assignments(shift_types(name))
-    `
-    )
-    .eq("clock_date", targetDate)
-    .order("clocked_at", { ascending: false });
+    `;
 
-  if (error) throw new Error(error.message);
+  const basicSelect = `
+      id,
+      employee_id,
+      assignment_id,
+      clock_type,
+      clocked_at,
+      clock_date,
+      latitude,
+      longitude,
+      distance_from_clinic_m,
+      validation,
+      source,
+      is_late,
+      late_minutes,
+      expected_at,
+      is_manually_corrected,
+      corrected_by,
+      corrected_at,
+      original_clocked_at,
+      note,
+      employees(name, employee_no),
+      shift_assignments(shift_types(name))
+    `;
+
+  let records: Record<string, unknown>[] | null = null;
+  let errorMessage: string | null = null;
+
+  {
+    const { data, error } = await supabase
+      .from("clock_records")
+      .select(fullSelect)
+      .eq("clock_date", targetDate)
+      .order("clocked_at", { ascending: false });
+
+    if (error) {
+      if (/is_early|payable_clocked_at|early_minutes|does not exist/i.test(error.message)) {
+        const fallback = await supabase
+          .from("clock_records")
+          .select(basicSelect)
+          .eq("clock_date", targetDate)
+          .order("clocked_at", { ascending: false });
+        if (fallback.error) throw new Error(fallback.error.message);
+        records = (fallback.data ?? []) as Record<string, unknown>[];
+      } else {
+        errorMessage = error.message;
+      }
+    } else {
+      records = (data ?? []) as Record<string, unknown>[];
+    }
+  }
+
+  if (errorMessage) throw new Error(errorMessage);
 
   const rows: ClockRecordRow[] = (records ?? []).map((r) => {
     const emp = parseJoin(r.employees) as { name?: string; employee_no?: string } | null;
@@ -65,36 +110,36 @@ export async function fetchClockRecordsPageData(date?: string) {
     const shiftTypes = parseJoin(assign?.shift_types) as { name?: string } | null;
 
     return {
-      id: r.id,
-      employee_id: r.employee_id,
+      id: String(r.id),
+      employee_id: String(r.employee_id),
       employee_name: emp?.name ?? "—",
       employee_no: emp?.employee_no ?? "",
-      assignment_id: r.assignment_id,
-      clock_type: r.clock_type,
-      clocked_at: r.clocked_at,
-      clock_date: r.clock_date,
+      assignment_id: (r.assignment_id as string | null) ?? null,
+      clock_type: String(r.clock_type),
+      clocked_at: String(r.clocked_at),
+      clock_date: String(r.clock_date),
       latitude: r.latitude != null ? Number(r.latitude) : null,
       longitude: r.longitude != null ? Number(r.longitude) : null,
       distance_from_clinic_m:
         r.distance_from_clinic_m != null ? Number(r.distance_from_clinic_m) : null,
-      validation: r.validation,
-      source: r.source,
+      validation: String(r.validation),
+      source: String(r.source),
       is_late: Boolean(r.is_late),
       late_minutes: Number(r.late_minutes ?? 0),
       is_manually_corrected: Boolean(r.is_manually_corrected),
-      corrected_by: r.corrected_by,
-      corrected_at: r.corrected_at,
-      original_clocked_at: r.original_clocked_at,
-      note: r.note,
+      corrected_by: (r.corrected_by as string | null) ?? null,
+      corrected_at: (r.corrected_at as string | null) ?? null,
+      original_clocked_at: (r.original_clocked_at as string | null) ?? null,
+      note: (r.note as string | null) ?? null,
       shift_name: shiftTypes?.name ?? null,
-      expected_at: r.expected_at ?? null,
+      expected_at: (r.expected_at as string | null) ?? null,
       is_early: Boolean(r.is_early),
       early_minutes: Number(r.early_minutes ?? 0),
-      payable_clocked_at: r.payable_clocked_at ?? null,
+      payable_clocked_at: (r.payable_clocked_at as string | null) ?? null,
       is_early_abnormal: Boolean(r.is_early_abnormal),
       early_work_approved: Boolean(r.early_work_approved),
-      early_reviewed_by: r.early_reviewed_by ?? null,
-      early_reviewed_at: r.early_reviewed_at ?? null,
+      early_reviewed_by: (r.early_reviewed_by as string | null) ?? null,
+      early_reviewed_at: (r.early_reviewed_at as string | null) ?? null,
     };
   });
 
