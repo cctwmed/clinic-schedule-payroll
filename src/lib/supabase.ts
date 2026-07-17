@@ -9,5 +9,14 @@ export function createSupabaseClient(): SupabaseClient {
   return createServiceClient();
 }
 
-/** 伺服器端共用 Client（API、Server Actions） */
-export const supabase = createSupabaseClient();
+/**
+ * 伺服器端共用 Client（延遲建立，避免模組載入時尚未讀到環境變數）。
+ * 使用 Proxy，既有 `supabase.from(...)` 呼叫方式不變。
+ */
+export const supabase: SupabaseClient = new Proxy({} as SupabaseClient, {
+  get(_target, prop, receiver) {
+    const client = createServiceClient();
+    const value = Reflect.get(client, prop, receiver);
+    return typeof value === "function" ? value.bind(client) : value;
+  },
+});

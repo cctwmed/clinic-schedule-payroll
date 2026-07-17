@@ -16,9 +16,17 @@ export const GOLDEN_SCHEDULE = {
   HALF_DAY_HOURS: 3.67,
   /** 雙診日工時（早+晚） */
   DUAL_DAY_HOURS: 7.67,
-  /** 軌道一週正常工時（週三半天 + 六日大休） */
-  WEEKLY_HOURS_TRACK1: 34.3,
-  /** 軌道二週正常工時（週三例休 + 六日早半班） */
+  /**
+   * 軌道一週正常工時：
+   * 週一／二／四早晚 + 週五僅早診 + 週三半天 + 六日大休
+   * = 3×7.67 + 3.67 + 3.67 ≈ 30.3
+   */
+  WEEKLY_HOURS_TRACK1: 30.3,
+  /**
+   * 軌道二週正常工時：
+   * 週一／二／四／五早晚 + 週三例休 + 六日早半班
+   * = 4×7.67 + 2×3.67 ≈ 38
+   */
   WEEKLY_HOURS_TRACK2: 38,
   /** 輪班間隔安全線（晚診 20:00 → 次日 08:20 = 12h20m） */
   REST_BETWEEN_SHIFTS_HOURS: 11,
@@ -130,7 +138,8 @@ export function buildGoldenTemplate() {
   return {
     id: "GOLDEN" as const,
     label: "雙人全正職輪替（黃金班表）",
-    description: "週一～二、四～五雙人早晚診；週三、六、日半日診＋雙週火車頭輪替",
+    description:
+      "週一／二／四雙人早晚診；週五軌道一僅早診、軌道二早晚診；週三／六／日半日診＋雙週輪替（軌道一休六日並上週三，軌道二休週三）",
     dailyRegularHours: GOLDEN_SCHEDULE.DUAL_DAY_HOURS,
     slots: buildGoldenShiftSlots(),
   };

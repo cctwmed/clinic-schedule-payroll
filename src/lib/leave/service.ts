@@ -78,7 +78,14 @@ export async function fetchEmployeeLeaveSummaries(
     .neq("status", "resigned")
     .order("employee_no");
 
-  if (error) throw new Error(error.message);
+  if (error) {
+    if (/arrival_date|does not exist/i.test(error.message)) {
+      throw new Error(
+        "資料庫缺少請假相關欄位（arrival_date）。請至 Supabase SQL Editor 執行 supabase/run_schema_repair.sql"
+      );
+    }
+    throw new Error(error.message);
+  }
 
   const summaries: EmployeeLeaveSummary[] = [];
 

@@ -46,7 +46,14 @@ export async function getDefaultClinic(): Promise<Clinic> {
     .select("id, name, address, latitude, longitude, geo_radius_m")
     .single();
 
-  if (createError) throw new Error(createError.message);
+  if (createError) {
+    if (/row-level security|RLS/i.test(createError.message)) {
+      throw new Error(
+        "無法建立診所資料（RLS 阻擋）。請確認 Vercel / .env.local 已設定 SUPABASE_SERVICE_ROLE_KEY，並重新部署或重啟 npm run dev"
+      );
+    }
+    throw new Error(createError.message);
+  }
 
   return {
     ...created,

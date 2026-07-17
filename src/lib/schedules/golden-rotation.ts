@@ -50,6 +50,15 @@ export function generateGoldenMonthSchedule(
     const aTrack = getTrackForEmployeeA(workDate, oddWeekTrackForA);
     const bTrack = getTrackForEmployeeB(workDate, oddWeekTrackForA);
 
+    // 週五：六日大休軌道（軌道一）休晚診，只上早診；另一人早晚診全勤
+    if (dow === 5) {
+      results.push(
+        ...fridayAssignments(workDate, employeeAId, employeeBId, aTrack, byCode)
+      );
+      continue;
+    }
+
+    // 週一、二、四：雙人早晚診
     if (isDualClinicDay(dow)) {
       results.push(...dualDayAssignments(workDate, employeeAId, employeeBId, byCode));
       continue;
@@ -89,6 +98,32 @@ function dualDayAssignments(
     out.push(makeAssignment(workDate, employeeId, evening, "晚診（雙人戰力）"));
   }
   return out;
+}
+
+/**
+ * 週五特殊規則：
+ * - 軌道一（六日大休）：只上早診，休晚診（以週三半天換周五晚診）
+ * - 軌道二：早晚診全勤（週三例假）
+ */
+function fridayAssignments(
+  workDate: string,
+  employeeAId: string,
+  employeeBId: string,
+  aTrack: RotationTrack,
+  byCode: Record<string, ShiftTypeRef>
+): GeneratedAssignment[] {
+  const morning = byCode.MORNING;
+  const evening = byCode.EVENING;
+  if (!morning || !evening) return [];
+
+  const track1Id = aTrack === 1 ? employeeAId : employeeBId;
+  const track2Id = aTrack === 1 ? employeeBId : employeeAId;
+
+  return [
+    makeAssignment(workDate, track1Id, morning, "週五早診（軌道一大休週，休晚診）"),
+    makeAssignment(workDate, track2Id, morning, "週五早診（雙人戰力）"),
+    makeAssignment(workDate, track2Id, evening, "週五晚診（軌道二值班）"),
+  ];
 }
 
 function halfClinicDayAssignments(
@@ -181,24 +216,26 @@ function offDayAssignment(
 export function getRotationLegend(oddWeekTrackForA: RotationTrack = 1) {
   return {
     track1: {
-      title: "軌道一",
+      title: "軌道一（六日大休）",
       items: [
-        "週一～二、四～五：雙人早晚診全勤",
-        "週三：半天早診值班",
+        "週一、二、四：雙人早晚診全勤",
+        "週三：半天早診值班（軌道二例假）",
+        "週五：僅早診（休晚診）",
         "週六、日：大休",
         `每週約 ${GOLDEN_SCHEDULE.WEEKLY_HOURS_TRACK1} 小時`,
       ],
     },
     track2: {
-      title: "軌道二",
+      title: "軌道二（六日早半班）",
       items: [
-        "週一～二、四～五：雙人早晚診全勤",
-        "週三：例假",
+        "週一、二、四、五：雙人／單人晚診戰力",
+        "週三：例假（不用上班）",
+        "週五：早晚診全勤（軌道一休晚診）",
         "週六、日：早半班（搭配家屬支援）",
         `每週約 ${GOLDEN_SCHEDULE.WEEKLY_HOURS_TRACK2} 小時`,
       ],
     },
-    swapNote: "隔週兩人的週三與六、日班表自動完全對調",
+    swapNote: "隔週兩人的週三、週五晚診與六、日班表自動對調",
     oddWeekTrackForA,
   };
 }

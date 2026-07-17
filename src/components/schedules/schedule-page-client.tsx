@@ -426,8 +426,8 @@ export function SchedulePageClient({
               disabled={isPublished || isPending}
               className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
             >
-              <option value={1}>軌道一（週三值班、六日大休）</option>
-              <option value={2}>軌道二（週三例休、六日早班）</option>
+              <option value={1}>軌道一（週三值班、周五休晚診、六日大休）</option>
+              <option value={2}>軌道二（週三例假、周五晚診、六日早半班）</option>
             </select>
           </div>
           {!isPublished && (
