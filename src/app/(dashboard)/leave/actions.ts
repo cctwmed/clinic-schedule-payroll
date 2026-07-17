@@ -13,7 +13,6 @@ import {
   fetchLeaveRecords,
   listDatesInRange,
   reviewLeaveRecord,
-  type LeaveRecordRow,
 } from "@/lib/leave/leave-records-service";
 import type { LeaveRecordType } from "@/lib/leave/leave-types";
 
@@ -145,5 +144,3 @@ export async function approveLeaveRequest(input: {
   revalidatePath("/schedules");
   return { success: true as const };
 }
-
-export type { LeaveRecordRow };
