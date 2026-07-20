@@ -168,7 +168,8 @@ export async function fetchPayrollPageData(year: number, month: number) {
         includeQuarterlyBonus: includeQuarterly,
         includeYearEndBonus: includeYearEnd,
         holidayDates,
-      }
+      },
+      complianceData.dayOffs
     );
   });
 
@@ -276,6 +277,10 @@ export async function savePayrollRun(
           clinicBurdenTotal: item.clinicBurdenTotal,
           totalToStatePerEmployee: item.totalToStatePerEmployee,
           manualOvertimeHours: item.manualOvertimeHours,
+          restDayWorkDays: item.restDayWorkDays,
+          restDayOvertimePay: item.restDayOvertimePay,
+          restDayRequiredOffDays: item.restDayRequiredOffDays,
+          restDayActualOffDays: item.restDayActualOffDays,
           taxForm50NonRecurring: item.nonRecurringTotal,
           insuranceBase: item.monthlyBaseSalary,
         },

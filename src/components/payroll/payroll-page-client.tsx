@@ -485,6 +485,7 @@ export function PayrollPageClient({
                       <th className="px-3 py-3">固定底薪</th>
                       <th className="px-3 py-3">時數薪</th>
                       <th className="px-3 py-3">平日加班</th>
+                      <th className="px-3 py-3">休息日加班</th>
                       <th className="px-3 py-3">臨時加班(h)</th>
                       <th className="px-3 py-3">國定加倍</th>
                       <th className="px-3 py-3">國定延長</th>
@@ -527,6 +528,19 @@ export function PayrollPageClient({
                             {(item.manualOvertimeHours ?? 0) > 0 &&
                               ` + 臨時 ${item.manualOvertimeHours}h`}
                           </p>
+                        </td>
+                        <td className="px-3 py-3 text-violet-800">
+                          {item.restDayOvertimePay > 0 ? (
+                            <>
+                              <p>{formatMoney(item.restDayOvertimePay)}</p>
+                              <p className="text-xs text-violet-600">
+                                短少 {item.restDayWorkDays} 日休（應{" "}
+                                {item.restDayRequiredOffDays}／實 {item.restDayActualOffDays}）
+                              </p>
+                            </>
+                          ) : (
+                            "—"
+                          )}
                         </td>
                         <td className="px-3 py-3">
                           <input
@@ -646,7 +660,7 @@ function MonthlyFundsDashboard({
             {formatMoney(summary.totalNetToEmployees)}
           </p>
           <p className="mt-1 text-xs text-emerald-700">
-            應領薪資 {formatMoney(summary.totalGross)} − 個人勞健保自付
+            應領薪資 {formatMoney(summary.totalGross)} − 個人勞健保自付等扣款
           </p>
         </div>
 
@@ -654,6 +668,9 @@ function MonthlyFundsDashboard({
           <h4 className="text-sm font-semibold text-indigo-900">付給政府（應繳國家總額）</h4>
           <p className="mt-2 text-2xl font-bold text-indigo-800">
             {formatMoney(summary.totalToState)}
+          </p>
+          <p className="mt-1 text-xs text-indigo-700">
+            個人勞健保自付 ＋ 診所雇主勞健保 ＋ 勞退 6%
           </p>
           <ul className="mt-3 space-y-1.5 text-sm text-indigo-900">
             <li className="flex justify-between gap-4">
@@ -699,7 +716,11 @@ function SalaryStructureBanner() {
         </li>
         <li>
           平日加班／特種出勤時薪基數 {CLINIC_PAYROLL.OT_HOURLY_RATE} 元；國定假日／颱風天{" "}
-          {formatMoney(CLINIC_PAYROLL.SPECIAL_ATTENDANCE_DAILY)}/天
+          {formatMoney(CLINIC_PAYROLL.HOLIDAY_DOUBLE_PAY)}／天（≤8h）；超過另計{" "}
+          {CLINIC_PAYROLL.HOLIDAY_OT_TIER1_HOURLY}／{CLINIC_PAYROLL.HOLIDAY_OT_TIER2_HOURLY}{" "}
+          元/h。四週變形應休不足時，短少日數以休息日出勤半天診計算：
+          （{CLINIC_PAYROLL.OT_HOURLY_RATE}×1.34×2h）＋（{CLINIC_PAYROLL.OT_HOURLY_RATE}×1.67×2h），
+          併入應發且不因工時未滿 160h 略過。
         </li>
         <li>
           特休未休畢折現：(月薪 ÷ 30) × 未休天數，到期或離職時併入當月非經常性薪資

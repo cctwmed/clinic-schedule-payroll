@@ -165,7 +165,8 @@ export async function fetchMobilePayslip(
       includeQuarterlyBonus: false,
       includeYearEndBonus: false,
       holidayDates,
-    }
+    },
+    complianceData.dayOffs
   );
 
   const otBreakdown = calculateOvertimePay(line.overtimeHours, "weekday");
@@ -181,6 +182,8 @@ export async function fetchMobilePayslip(
       fullAttendanceBonus: line.fullAttendanceBonus,
       fixedTotal: line.basePay,
       overtimePay: line.overtimePay,
+      restDayOvertimePay: line.restDayOvertimePay,
+      restDayWorkDays: line.restDayWorkDays,
       holidayDoublePay: line.holidayDoublePay,
       holidayOvertimePay: line.holidayOvertimePay,
       holidayPayTotal: line.specialAttendancePay,

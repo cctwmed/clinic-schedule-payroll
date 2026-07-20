@@ -60,7 +60,7 @@ export function EmployeesPageClient({ employees }: { employees: Employee[] }) {
     <>
       <DashboardHeader
         title="員工管理"
-        description="管理診所護理師與行政人員的基本資料、時薪與勞健保設定。離職／停職人員仍可查閱，但不列入排班與算薪。"
+        description="管理診所護理師與行政人員的基本資料、時薪與勞健保設定。離職僅標記狀態、不刪除資料；歷史紀錄可隨時存查。"
         action={
           <button
             onClick={openCreate}

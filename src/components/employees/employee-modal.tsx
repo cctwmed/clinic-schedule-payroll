@@ -54,7 +54,9 @@ export function EmployeeModal({ open, employee, onClose, onSuccess }: EmployeeMo
   const [insuredSalary, setInsuredSalary] = useState<number | "">("");
   const [error, setError] = useState<string | null>(null);
   const [saveNotice, setSaveNotice] = useState<string | null>(null);
+  const [resignConfirmOpen, setResignConfirmOpen] = useState(false);
   const [isPending, startTransition] = useTransition();
+  const previousStatus = employee?.status ?? "active";
 
   const isAdminRole = form.role === "admin";
 
@@ -67,6 +69,7 @@ export function EmployeeModal({ open, employee, onClose, onSuccess }: EmployeeMo
 
   useEffect(() => {
     if (!open) return;
+    setResignConfirmOpen(false);
 
     if (employee) {
       const loaded: EmployeeFormData = {
@@ -79,6 +82,7 @@ export function EmployeeModal({ open, employee, onClose, onSuccess }: EmployeeMo
         email: employee.email ?? "",
         phone: employee.phone ?? "",
         hire_date: employee.hire_date,
+        resign_date: employee.resign_date ?? "",
         birth_date: employee.birth_date ?? "",
         national_id: employee.national_id ?? "",
         health_insurance_enrollment: resolveHealthEnrollment(employee.health_insurance_enrollment),
@@ -163,7 +167,16 @@ export function EmployeeModal({ open, employee, onClose, onSuccess }: EmployeeMo
     });
   }
 
-  function submitForm(skipUnder15Confirm = false) {
+  function isResignTransition() {
+    return form.status === "resigned" && previousStatus !== "resigned";
+  }
+
+  function submitForm(skipUnder15Confirm = false, skipResignConfirm = false) {
+    if (isResignTransition() && !skipResignConfirm) {
+      setResignConfirmOpen(true);
+      return;
+    }
+
     if (ageCompliance.status === "under_15" && !skipUnder15Confirm) {
       const ok = window.confirm(`${getUnder15WarningMessage()}\n\n仍要儲存此員工資料嗎？`);
       if (!ok) return;
@@ -171,11 +184,21 @@ export function EmployeeModal({ open, employee, onClose, onSuccess }: EmployeeMo
 
     setError(null);
     setSaveNotice(null);
+    setResignConfirmOpen(false);
+
+    const today = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Asia/Taipei",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(new Date());
 
     const payload: EmployeeFormData = {
       ...form,
       birth_date: ageCompliance.birthDate ?? form.birth_date,
       is_clinic_admin: form.role === "admin" ? true : form.is_clinic_admin,
+      resign_date:
+        form.status === "resigned" ? form.resign_date || today : "",
     };
 
     startTransition(async () => {
@@ -208,7 +231,11 @@ export function EmployeeModal({ open, employee, onClose, onSuccess }: EmployeeMo
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    submitForm(false);
+    submitForm(false, false);
+  }
+
+  function handleConfirmResign() {
+    submitForm(false, true);
   }
 
   return (
@@ -219,6 +246,24 @@ export function EmployeeModal({ open, employee, onClose, onSuccess }: EmployeeMo
         className="absolute inset-0 bg-slate-900/40"
         onClick={onClose}
       />
+
+      {resignConfirmOpen && (
+        <ResignConfirmDialog
+          employeeName={form.name || "此員工"}
+          resignDate={
+            form.resign_date ||
+            new Intl.DateTimeFormat("en-CA", {
+              timeZone: "Asia/Taipei",
+              year: "numeric",
+              month: "2-digit",
+              day: "2-digit",
+            }).format(new Date())
+          }
+          pending={isPending}
+          onCancel={() => setResignConfirmOpen(false)}
+          onConfirm={handleConfirmResign}
+        />
+      )}
 
       <div className="relative z-10 max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl bg-white shadow-xl">
         <div className="border-b border-slate-200 px-6 py-4">
@@ -390,7 +435,23 @@ export function EmployeeModal({ open, employee, onClose, onSuccess }: EmployeeMo
                 <select
                   className={inputClass}
                   value={form.status}
-                  onChange={(e) => updateField("status", e.target.value as EmployeeFormData["status"])}
+                  onChange={(e) => {
+                    const next = e.target.value as EmployeeFormData["status"];
+                    setForm((prev) => ({
+                      ...prev,
+                      status: next,
+                      resign_date:
+                        next === "resigned"
+                          ? prev.resign_date ||
+                            new Intl.DateTimeFormat("en-CA", {
+                              timeZone: "Asia/Taipei",
+                              year: "numeric",
+                              month: "2-digit",
+                              day: "2-digit",
+                            }).format(new Date())
+                          : "",
+                    }));
+                  }}
                 >
                   {Object.entries(STATUS_LABELS).map(([value, label]) => (
                     <option key={value} value={value}>
@@ -399,6 +460,22 @@ export function EmployeeModal({ open, employee, onClose, onSuccess }: EmployeeMo
                   ))}
                 </select>
                 <p className="mt-1 text-xs text-slate-500">{STATUS_HINTS[form.status]}</p>
+                {form.status === "resigned" && (
+                  <div className="mt-2 space-y-2">
+                    <label className="block">
+                      <span className="mb-1 block text-xs font-medium text-slate-600">離職日</span>
+                      <input
+                        type="date"
+                        className={inputClass}
+                        value={form.resign_date}
+                        onChange={(e) => updateField("resign_date", e.target.value)}
+                      />
+                    </label>
+                    <p className="rounded-md border border-rose-200 bg-rose-50 px-2.5 py-2 text-xs leading-relaxed text-rose-900">
+                      離職為「標記」而非刪除：儲存前會再請您確認。員工基本資料、排班、打卡、請假與薪資紀錄都會保留存查。
+                    </p>
+                  </div>
+                )}
                 {form.status === "active" && (
                   <p className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-2 text-xs leading-relaxed text-amber-900">
                     防呆提醒：若員工請完「產假」後需銜接「育嬰留職停薪」，請再手動將狀態改為
@@ -585,6 +662,73 @@ export function EmployeeModal({ open, employee, onClose, onSuccess }: EmployeeMo
             </button>
           </div>
         </form>
+      </div>
+    </div>
+  );
+}
+
+function ResignConfirmDialog({
+  employeeName,
+  resignDate,
+  pending,
+  onCancel,
+  onConfirm,
+}: {
+  employeeName: string;
+  resignDate: string;
+  pending: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <div className="absolute inset-0 z-20 flex items-center justify-center p-4">
+      <button
+        type="button"
+        aria-label="關閉確認"
+        className="absolute inset-0 bg-slate-900/50"
+        onClick={onCancel}
+        disabled={pending}
+      />
+      <div
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby="resign-confirm-title"
+        className="relative w-full max-w-md rounded-2xl border border-rose-200 bg-white p-6 shadow-2xl"
+      >
+        <h4 id="resign-confirm-title" className="text-lg font-semibold text-rose-900">
+          確認辦理離職？
+        </h4>
+        <p className="mt-2 text-sm leading-relaxed text-slate-700">
+          即將將「{employeeName}」標記為離職
+          {resignDate ? `（離職日 ${resignDate}）` : ""}。
+        </p>
+        <ul className="mt-3 list-inside list-disc space-y-1 text-sm text-slate-600">
+          <li>不會刪除任何資料</li>
+          <li>排班、打卡、請假、薪資紀錄完整保留供存查</li>
+          <li>之後不再列入日常排班與算薪</li>
+          <li>仍可在員工管理「離職」篩選中查閱</li>
+        </ul>
+        <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+          請再次確認：此操作僅變更狀態為離職，相關歷史資料一律保存。
+        </p>
+        <div className="mt-5 flex justify-end gap-3">
+          <button
+            type="button"
+            onClick={onCancel}
+            disabled={pending}
+            className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-60"
+          >
+            取消，先不離職
+          </button>
+          <button
+            type="button"
+            onClick={onConfirm}
+            disabled={pending}
+            className="rounded-lg bg-rose-600 px-4 py-2 text-sm font-medium text-white hover:bg-rose-700 disabled:opacity-60"
+          >
+            {pending ? "處理中..." : "確定離職並保存資料"}
+          </button>
+        </div>
       </div>
     </div>
   );

@@ -25,6 +25,7 @@ export interface Employee {
   email: string | null;
   phone: string | null;
   hire_date: string;
+  resign_date?: string | null;
   arrival_date?: string | null;
   birth_date?: string | null;
   national_id?: string | null;
@@ -54,6 +55,8 @@ export interface EmployeeFormData {
   email: string;
   phone: string;
   hire_date: string;
+  /** 離職日；狀態改為 resigned 時寫入，資料仍完整保留存查 */
+  resign_date: string;
   birth_date: string;
   national_id: string;
   health_insurance_enrollment: HealthInsuranceEnrollment;
@@ -118,7 +121,8 @@ export const STATUS_LABELS: Record<EmployeeStatus, string> = {
 export const STATUS_HINTS: Record<EmployeeStatus, string> = {
   active: "參與排班、打卡與算薪",
   inactive: "保留資料，暫不排班／不算薪（育嬰、懷孕等）",
-  resigned: "保留歷史紀錄，不列入日常排班與算薪",
+  resigned:
+    "標記離職後仍完整保留員工、排班、打卡、請假與薪資紀錄供存查；僅不再列入日常排班與算薪",
 };
 
 export const EMPLOYMENT_LABELS: Record<EmploymentType, string> = {
@@ -137,6 +141,7 @@ export const EMPTY_EMPLOYEE_FORM: EmployeeFormData = {
   email: "",
   phone: "",
   hire_date: new Date().toISOString().slice(0, 10),
+  resign_date: "",
   birth_date: "",
   national_id: "",
   health_insurance_enrollment: "clinic",

@@ -18,6 +18,8 @@ interface PayslipData {
     fullAttendanceBonus: number;
     fixedTotal: number;
     overtimePay: number;
+    restDayOvertimePay?: number;
+    restDayWorkDays?: number;
     holidayDoublePay: number;
     holidayOvertimePay: number;
     holidayPayTotal: number;
@@ -174,6 +176,13 @@ export function PayslipTab({ lineUserId, onGoBind }: PayslipTabProps) {
               加班 {data.hours.overtime} 小時（第 3–4 段 {data.hours.overtimeTier2} 小時）
             </p>
             <Row label="平日加班合計" value={data.components.overtimePay} bold />
+            {(data.components.restDayOvertimePay ?? 0) > 0 && (
+              <Row
+                label={`休息日加班費（短少 ${data.components.restDayWorkDays ?? 0} 日休）`}
+                value={data.components.restDayOvertimePay!}
+                bold
+              />
+            )}
             <p className="mt-2 text-[11px] text-slate-400">{data.overtimeDetail.tier1}</p>
             <p className="text-[11px] text-slate-400">{data.overtimeDetail.tier2}</p>
           </section>

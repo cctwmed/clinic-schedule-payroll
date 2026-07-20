@@ -352,10 +352,11 @@ export function SchedulePageClient({
 
       <div className="space-y-4 p-6">
         <div className="rounded-xl border border-amber-200 bg-amber-50/80 p-4 text-sm text-amber-900">
-          <p className="font-semibold">雙週火車頭輪替規則</p>
+          <p className="font-semibold">雙週火車頭輪替規則（與一鍵產生班表一致）</p>
           <p className="mt-1 text-amber-800">
-            週一、二、四、五：兩位正職同時早晚診全勤（雙人戰力）。週三、六、日：半天診 08:20–12:00，依軌道輪替。
-            隔週兩人的週三與六、日班表自動完全對調。輪班間隔約 12 小時 20 分（≥ 11 小時安全線）。
+            週一、二、四：兩人早晚診全勤。週五：兩人早診，僅軌道二上晚診（軌道一休晚診）。
+            週三：軌道一早診半天、軌道二例假。六、日：軌道一大休、軌道二早半班。
+            隔週兩人軌道對調（週三／週五晚診／六日班表整組互換）。輪班間隔約 12 小時 20 分（≥ 11 小時安全線）。
           </p>
         </div>
 

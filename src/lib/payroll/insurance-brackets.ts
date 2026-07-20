@@ -111,6 +111,72 @@ export function applyInsuranceBracket(
   };
 }
 
+/**
+ * 結算時補齊雇主負擔：若員工檔僅有個人自付、雇主欄位為 0，
+ * 依投保級距回推雇主勞健保與 6% 勞退（避免總覽誤顯示 0）。
+ */
+export function resolveEmployerInsurancePays(input: {
+  laborInsuranceSelfPay: number;
+  healthInsuranceSelfPay: number;
+  laborInsuranceEmployerPay: number;
+  healthInsuranceEmployerPay: number;
+  laborPensionEmployerPay: number;
+}): {
+  laborInsuranceEmployerPay: number;
+  healthInsuranceEmployerPay: number;
+  laborPensionEmployerPay: number;
+} {
+  let laborEmployer = Math.max(0, Number(input.laborInsuranceEmployerPay) || 0);
+  let healthEmployer = Math.max(0, Number(input.healthInsuranceEmployerPay) || 0);
+  let pension = Math.max(0, Number(input.laborPensionEmployerPay) || 0);
+
+  const laborSelf = Math.max(0, Number(input.laborInsuranceSelfPay) || 0);
+  const healthSelf = Math.max(0, Number(input.healthInsuranceSelfPay) || 0);
+
+  const needsFill = laborEmployer <= 0 || pension <= 0 || (healthSelf > 0 && healthEmployer <= 0);
+  if (!needsFill) {
+    return {
+      laborInsuranceEmployerPay: laborEmployer,
+      healthInsuranceEmployerPay: healthEmployer,
+      laborPensionEmployerPay: pension,
+    };
+  }
+
+  if (laborSelf <= 0 && healthSelf <= 0 && laborEmployer <= 0) {
+    return {
+      laborInsuranceEmployerPay: laborEmployer,
+      healthInsuranceEmployerPay: healthEmployer,
+      laborPensionEmployerPay: pension,
+    };
+  }
+
+  const insured = guessInsuranceBracket({
+    labor_insurance_self_pay: laborSelf,
+    health_insurance_self_pay: healthSelf,
+    labor_insurance_employer_pay: laborEmployer,
+  });
+
+  if (insured !== "") {
+    const b = getInsuranceBracket(insured);
+    if (b) {
+      const enrollment: HealthInsuranceEnrollment =
+        healthSelf > 0 || healthEmployer > 0 ? "clinic" : "none";
+      const applied = applyInsuranceBracket(b, enrollment);
+      if (laborEmployer <= 0) laborEmployer = applied.labor_insurance_employer_pay;
+      if (healthEmployer <= 0 && enrollment === "clinic") {
+        healthEmployer = applied.health_insurance_employer_pay;
+      }
+      if (pension <= 0) pension = applied.labor_pension_employer_pay;
+    }
+  }
+
+  return {
+    laborInsuranceEmployerPay: laborEmployer,
+    healthInsuranceEmployerPay: healthEmployer,
+    laborPensionEmployerPay: pension,
+  };
+}
+
 export function guessInsuranceBracket(form: {
   labor_insurance_self_pay: number;
   health_insurance_self_pay: number;
@@ -120,19 +186,24 @@ export function guessInsuranceBracket(form: {
 
   let best: InsuranceBracket | null = null;
   let bestScore = Infinity;
+  const employerKnown = form.labor_insurance_employer_pay > 0;
 
   for (const b of INSURANCE_BRACKETS) {
     const score =
       Math.abs(b.laborInsuranceSelfPay - form.labor_insurance_self_pay) +
       Math.abs(b.healthInsuranceSelfPayClinic - form.health_insurance_self_pay) +
-      Math.abs(b.laborInsuranceEmployerPay - form.labor_insurance_employer_pay);
+      (employerKnown
+        ? Math.abs(b.laborInsuranceEmployerPay - form.labor_insurance_employer_pay)
+        : 0);
     if (score < bestScore) {
       bestScore = score;
       best = b;
     }
   }
 
-  return best && bestScore <= 50 ? best.insuredSalary : "";
+  // 僅有個人自付時放寬門檻；含雇主金額時維持較嚴
+  const maxScore = employerKnown ? 50 : 30;
+  return best && bestScore <= maxScore ? best.insuredSalary : "";
 }
 
 export const HEALTH_ENROLLMENT_LABELS: Record<HealthInsuranceEnrollment, string> = {

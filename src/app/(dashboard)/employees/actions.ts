@@ -87,6 +87,22 @@ const ALL_FLAGS: PayloadFlags = {
 function toPayload(form: EmployeeFormData, clinicId: string, flags: PayloadFlags = ALL_FLAGS) {
   const compliance = resolveAgeCompliance(form.birth_date, form.national_id);
 
+  const todayTaipei = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Taipei",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+
+  // 離職＝軟標記：永不刪除員工列及其關聯資料（排班／打卡／請假／薪資皆保留存查）
+  let resignDate: string | null = form.resign_date?.trim() || null;
+  if (form.status === "resigned") {
+    resignDate = resignDate || todayTaipei;
+  } else if (form.status === "active" || form.status === "inactive") {
+    // 復職／停職：清掉離職日，歷史關聯資料仍完整保留
+    resignDate = null;
+  }
+
   const payload: Record<string, unknown> = {
     clinic_id: clinicId,
     employee_no: form.employee_no.trim(),
@@ -97,6 +113,7 @@ function toPayload(form: EmployeeFormData, clinicId: string, flags: PayloadFlags
     email: form.email.trim() || null,
     phone: form.phone.trim() || null,
     hire_date: form.hire_date,
+    resign_date: resignDate,
     hourly_wage: form.hourly_wage,
     labor_insurance_self_pay: form.labor_insurance_self_pay,
     health_insurance_self_pay: form.health_insurance_self_pay,
@@ -207,6 +224,7 @@ export async function updateEmployee(id: string, form: EmployeeFormData) {
 
   try {
     const clinicId = await getDefaultClinicId();
+    // 離職／停職一律 update 狀態欄，禁止刪除員工列（關聯排班／打卡／薪資靠 FK 保留）
     const { error } = await persistEmployee("update", form, clinicId, id);
 
     if (error) {

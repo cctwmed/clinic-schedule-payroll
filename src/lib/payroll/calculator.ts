@@ -7,7 +7,9 @@ import {
 import { CLINIC_PAYROLL, sumNonRecurringBonus } from "@/lib/payroll/constants";
 import { calculateMonthlyOvertimePay } from "@/lib/payroll/overtime-pay";
 import { calculateYearEndBonus } from "@/lib/payroll/year-end-bonus";
-import type { ClockEvent, WorkShiftBlock } from "@/lib/compliance/types";
+import { resolveEmployerInsurancePays } from "@/lib/payroll/insurance-brackets";
+import { calculateRestDayShortfall } from "@/lib/payroll/rest-day-shortfall";
+import type { ClockEvent, DayOffRecord, WorkShiftBlock } from "@/lib/compliance/types";
 import type { LeavePayrollSummary } from "@/lib/payroll/leave-deductions";
 import type { EmployeeStatus } from "@/types/employee";
 
@@ -74,6 +76,13 @@ export interface PayrollLineItem {
   holidayDoublePay: number;
   /** 國定假日超過 8h 延長工時加班費 */
   holidayOvertimePay: number;
+  /** 四週變形短少休假 → 休息日出勤天數 */
+  restDayWorkDays: number;
+  /** 休息日加班費（半天診公式；與是否滿 160h 無關） */
+  restDayOvertimePay: number;
+  /** 計薪週期應休／實休（存查） */
+  restDayRequiredOffDays: number;
+  restDayActualOffDays: number;
   personalLeaveHours: number;
   personalLeaveDeduction: number;
   sickLeaveHours: number;
@@ -150,7 +159,8 @@ export function recalcPayrollTotals(item: PayrollLineItem): PayrollLineItem {
     annualLeavePayout: item.annualLeavePayout,
     specialAttendancePay: item.specialAttendancePay,
   });
-  const recurringGross = item.basePay + overtimePay;
+  const restDayOvertimePay = Math.max(0, Math.round(item.restDayOvertimePay ?? 0));
+  const recurringGross = item.basePay + overtimePay + restDayOvertimePay;
   const grossPay = recurringGross + nonRecurringTotal;
   const employeeDeductions = round(item.laborInsurance + item.healthInsurance);
   const leaveDeductionTotal = round(item.leaveDeductionTotal ?? 0);
@@ -172,6 +182,7 @@ export function recalcPayrollTotals(item: PayrollLineItem): PayrollLineItem {
     ...item,
     overtimePay,
     overtimeHours2Tier: round(otTier2),
+    restDayOvertimePay,
     leaveDeductionTotal,
     nonRecurringTotal,
     employeeDeductions,
@@ -195,6 +206,10 @@ export function recalcPayrollTotals(item: PayrollLineItem): PayrollLineItem {
       leaveDeductionTotal,
       holidayDoublePay: item.holidayDoublePay,
       holidayOvertimePay: item.holidayOvertimePay,
+      restDayWorkDays: item.restDayWorkDays ?? 0,
+      restDayOvertimePay,
+      restDayRequiredOffDays: item.restDayRequiredOffDays ?? 0,
+      restDayActualOffDays: item.restDayActualOffDays ?? 0,
       nonRecurringTotal,
       recurringGross: round(recurringGross),
       employeeDeductions,
@@ -240,6 +255,10 @@ export function zeroOutParentalLeaveSuspend(item: PayrollLineItem): PayrollLineI
     specialAttendancePay: 0,
     holidayDoublePay: 0,
     holidayOvertimePay: 0,
+    restDayWorkDays: 0,
+    restDayOvertimePay: 0,
+    restDayRequiredOffDays: 0,
+    restDayActualOffDays: 0,
     personalLeaveHours: 0,
     personalLeaveDeduction: 0,
     sickLeaveHours: 0,
@@ -274,6 +293,10 @@ export function zeroOutParentalLeaveSuspend(item: PayrollLineItem): PayrollLineI
       leaveDeductionTotal: 0,
       holidayDoublePay: 0,
       holidayOvertimePay: 0,
+      restDayWorkDays: 0,
+      restDayOvertimePay: 0,
+      restDayRequiredOffDays: 0,
+      restDayActualOffDays: 0,
       nonRecurringTotal: 0,
       recurringGross: 0,
       employeeDeductions: 0,
@@ -295,7 +318,8 @@ export function calculateEmployeePayroll(
   shifts: WorkShiftBlock[],
   clocks: ClockEvent[],
   bonusInput: PayrollBonusInput = {},
-  context?: PayrollCalcContext
+  context?: PayrollCalcContext,
+  dayOffs: DayOffRecord[] = []
 ): PayrollLineItem {
   const holidayDates =
     context?.holidayDates ??
@@ -309,6 +333,13 @@ export function calculateEmployeePayroll(
     clocks,
     { holidayDates }
   );
+
+  const restDayShortfall = calculateRestDayShortfall({
+    employeeId: employee.id,
+    periodStart,
+    periodEnd,
+    dayOffs,
+  });
 
   const { regularHours, overtimeHours } = summarizeHoursExcludingHolidayWorkDays(
     employee.id,
@@ -361,9 +392,16 @@ export function calculateEmployeePayroll(
 
   const laborInsurance = round(employee.laborInsuranceSelfPay);
   const healthInsurance = round(employee.healthInsuranceSelfPay);
-  const laborInsuranceEmployerPay = round(employee.laborInsuranceEmployerPay);
-  const healthInsuranceEmployerPay = round(employee.healthInsuranceEmployerPay);
-  const laborPensionEmployerPay = round(employee.laborPensionEmployerPay);
+  const resolvedEmployer = resolveEmployerInsurancePays({
+    laborInsuranceSelfPay: employee.laborInsuranceSelfPay,
+    healthInsuranceSelfPay: employee.healthInsuranceSelfPay,
+    laborInsuranceEmployerPay: employee.laborInsuranceEmployerPay,
+    healthInsuranceEmployerPay: employee.healthInsuranceEmployerPay,
+    laborPensionEmployerPay: employee.laborPensionEmployerPay,
+  });
+  const laborInsuranceEmployerPay = round(resolvedEmployer.laborInsuranceEmployerPay);
+  const healthInsuranceEmployerPay = round(resolvedEmployer.healthInsuranceEmployerPay);
+  const laborPensionEmployerPay = round(resolvedEmployer.laborPensionEmployerPay);
 
   const leavePay = bonusInput.leavePayroll ?? {
     personalLeaveHours: 0,
@@ -408,6 +446,10 @@ export function calculateEmployeePayroll(
     specialAttendancePay: holidayPay.totalPay,
     holidayDoublePay: holidayPay.doublePayTotal,
     holidayOvertimePay: holidayPay.overtimePayTotal,
+    restDayWorkDays: restDayShortfall.shortfallDays,
+    restDayOvertimePay: restDayShortfall.restDayOvertimePay,
+    restDayRequiredOffDays: restDayShortfall.requiredOffDays,
+    restDayActualOffDays: restDayShortfall.actualOffDays,
     personalLeaveHours: leavePay.personalLeaveHours,
     personalLeaveDeduction: leavePay.personalLeaveDeduction,
     sickLeaveHours: leavePay.sickLeaveHours,
@@ -438,6 +480,14 @@ export function calculateEmployeePayroll(
       holidayOvertimePay: holidayPay.overtimePayTotal,
       holidayDayDetails: holidayPay.dayDetails,
       specialAttendanceDates: holidayPay.dates.join(", "),
+      restDayWorkDays: restDayShortfall.shortfallDays,
+      restDayOvertimePay: restDayShortfall.restDayOvertimePay,
+      restDayRequiredOffDays: restDayShortfall.requiredOffDays,
+      restDayActualOffDays: restDayShortfall.actualOffDays,
+      restDayHalfDayPay: restDayShortfall.halfDayPayEach,
+      restDayFormula: restDayShortfall.formula,
+      restDayNote:
+        "四週變形每 28 日應休 8 日；短少日數以休息日出勤半天診加班費計（與是否滿 160h 無關）",
       regularHours: round(regularHours),
       overtimeHours: round(otTier1 + otTier2),
       flexibleBonus,
