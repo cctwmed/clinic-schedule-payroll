@@ -142,19 +142,20 @@ export function calculateHolidayDayPay(totalWorkHours: number): Omit<
   };
 }
 
-/** 解析當月國定假日日期（行政院假日 + 班表額外標記 − 全天休診日） */
+/** 解析當月國定／颱風出勤加發日（行政院假日 + 班表標記 − 僅診所修假日） */
 export function resolveHolidayDates(
   periodStart: string,
   periodEnd: string,
   scheduleMarkedHolidays: string[] = [],
-  closureDates: string[] = []
+  /** 僅傳入「診所修假／業務休診」日期；國定／颱風休診不可排除 */
+  voluntaryClosureDatesOnly: string[] = []
 ): Set<string> {
-  const closureSet = new Set(closureDates);
+  const excludeSet = new Set(voluntaryClosureDatesOnly);
   const dates = new Set<string>();
 
   let cursor = periodStart;
   while (cursor <= periodEnd) {
-    if (!closureSet.has(cursor)) {
+    if (!excludeSet.has(cursor)) {
       if (isTaiwanPublicHoliday(cursor) || scheduleMarkedHolidays.includes(cursor)) {
         dates.add(cursor);
       }

@@ -18,7 +18,13 @@ import type { ComplianceIssue } from "@/lib/compliance/types";
 import type { Clinic } from "@/lib/clinic";
 import { GOLDEN_SCHEDULE } from "@/lib/shift-templates";
 import { getRotationLegend } from "@/lib/schedules/golden-rotation";
-import type { GoldenScheduleConfig, ClosureRecord } from "@/lib/schedules/golden-config";
+import type { GoldenScheduleConfig, ClosureRecord, ClosureReason } from "@/lib/schedules/golden-config";
+import {
+  CLOSURE_REASON_LABELS,
+  CLOSURE_REASON_PAY_HINTS,
+  normalizeClosureReason,
+} from "@/lib/schedules/golden-config";
+import { isTaiwanPublicHoliday } from "@/lib/holidays/taiwan-public-holidays";
 import { displayJobTitle } from "@/types/employee";
 import type {
   DayAssignmentMap,
@@ -79,6 +85,8 @@ export function SchedulePageClient({
     goldenConfig?.oddWeekTrackForA ?? 1
   );
   const [closureDate, setClosureDate] = useState("");
+  const [closureReason, setClosureReason] = useState<ClosureReason>("voluntary");
+  const [closureReasonNote, setClosureReasonNote] = useState("");
   const [closureCreditHours, setClosureCreditHours] = useState<number>(
     GOLDEN_SCHEDULE.DUAL_DAY_HOURS
   );
@@ -208,7 +216,17 @@ export function SchedulePageClient({
       setMessage("已發布班表請用下方休診區塊設定臨時休診");
       return;
     }
-    if (!confirm(`確定將 ${workDate} 標記為全天休診？\n預告休診（公佈前）`)) return;
+    const suggested: ClosureReason = isTaiwanPublicHoliday(workDate)
+      ? "national"
+      : "voluntary";
+    const reasonLabel = CLOSURE_REASON_LABELS[suggested];
+    if (
+      !confirm(
+        `確定將 ${workDate} 標記為全天休診？\n原因：${reasonLabel}\n${CLOSURE_REASON_PAY_HINTS[suggested]}\n\n若原因不同，請改用下方「休診日設定」選擇後再標記。`
+      )
+    ) {
+      return;
+    }
 
     startTransition(async () => {
       try {
@@ -216,7 +234,8 @@ export function SchedulePageClient({
           schedule.id,
           workDate,
           "planned",
-          GOLDEN_SCHEDULE.DUAL_DAY_HOURS
+          GOLDEN_SCHEDULE.DUAL_DAY_HOURS,
+          suggested
         );
         if (!result.success) {
           setMessage(result.error);
@@ -224,9 +243,14 @@ export function SchedulePageClient({
         }
         setClosures((prev) => [
           ...prev.filter((c) => c.date !== workDate),
-          { date: workDate, mode: "planned", creditHours: GOLDEN_SCHEDULE.DUAL_DAY_HOURS },
+          {
+            date: workDate,
+            mode: "planned",
+            reason: suggested,
+            creditHours: GOLDEN_SCHEDULE.DUAL_DAY_HOURS,
+          },
         ]);
-        setMessage(`已標記 ${workDate} 為休診日`);
+        setMessage(`已標記 ${workDate} 為休診（${CLOSURE_REASON_LABELS[suggested]}）`);
         router.refresh();
       } catch (err) {
         setMessage(err instanceof Error ? err.message : "休診標記失敗");
@@ -337,9 +361,10 @@ export function SchedulePageClient({
     }
 
     const modeLabel = isPublished ? "臨時休診（已發布班表）" : "預告休診（公佈前）";
+    const reason = normalizeClosureReason(closureReason);
     if (
       !confirm(
-        `確定將 ${closureDate} 標記為休診日？\n模式：${modeLabel}\n工時折抵：${closureCreditHours} 小時`
+        `確定將 ${closureDate} 標記為休診日？\n模式：${modeLabel}\n原因：${CLOSURE_REASON_LABELS[reason]}\n工時折抵：${closureCreditHours} 小時\n\n${CLOSURE_REASON_PAY_HINTS[reason]}`
       )
     ) {
       return;
@@ -351,16 +376,27 @@ export function SchedulePageClient({
           schedule.id,
           closureDate,
           isPublished ? "temporary" : "planned",
-          closureCreditHours
+          closureCreditHours,
+          reason,
+          closureReasonNote
         );
         if (!result.success) {
           setMessage(result.error);
           return;
         }
+        setClosures((prev) => [
+          ...prev.filter((c) => c.date !== closureDate),
+          {
+            date: closureDate,
+            mode: isPublished ? "temporary" : "planned",
+            reason,
+            creditHours: closureCreditHours,
+            note: closureReasonNote.trim() || undefined,
+          },
+        ]);
         setMessage(
-          isPublished
-            ? `已標記 ${closureDate} 為臨時休診，工時 ${closureCreditHours}h 計入四週結算（不扣薪）`
-            : `已標記 ${closureDate} 為休診日，員工該日改為休息日`
+          `已標記 ${closureDate}（${CLOSURE_REASON_LABELS[reason]}）` +
+            (isPublished ? `，工時折抵 ${closureCreditHours}h` : "")
         );
         router.refresh();
       } catch (err) {
@@ -558,9 +594,8 @@ export function SchedulePageClient({
         <section className="rounded-xl border border-slate-300 bg-slate-50/80 p-4">
           <h3 className="text-sm font-semibold text-slate-800">休診日設定</h3>
           <p className="mt-1 text-xs leading-relaxed text-slate-600">
-            <strong>全天休診</strong> → 點日期列旁的「休診」。
-            <strong>只看早診</strong> → 點「半日」清除晚診。
-            <strong>國定假日仍出勤</strong> → 維持排班＋打卡；薪資依 8h 分水嶺：≤8h 加發 1,136 元，超過另計 190/237 元/h。
+            請先選<strong>休診原因</strong>（會影響費用）：診所修假不發國定加倍；國定假／颱風停診若仍出勤則依 ≤8h 加發 1,136
+            元，超過另計延長加班。日期列「休診」按鈕：若為行政院國定假日會自動帶「國定假日休診」。
           </p>
 
           <div className="mt-3 flex flex-wrap items-end gap-3">
@@ -569,8 +604,38 @@ export function SchedulePageClient({
               <input
                 type="date"
                 value={closureDate}
-                onChange={(e) => setClosureDate(e.target.value)}
+                onChange={(e) => {
+                  const d = e.target.value;
+                  setClosureDate(d);
+                  if (d && isTaiwanPublicHoliday(d)) {
+                    setClosureReason("national");
+                  }
+                }}
                 className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+              />
+            </label>
+            <label className="block text-xs">
+              <span className="mb-1 block font-medium text-slate-700">休診原因</span>
+              <select
+                value={closureReason}
+                onChange={(e) => setClosureReason(e.target.value as ClosureReason)}
+                className="min-w-52 rounded-lg border border-slate-300 px-3 py-2 text-sm"
+              >
+                {(Object.keys(CLOSURE_REASON_LABELS) as ClosureReason[]).map((key) => (
+                  <option key={key} value={key}>
+                    {CLOSURE_REASON_LABELS[key]}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="block text-xs">
+              <span className="mb-1 block font-medium text-slate-700">備註（選填）</span>
+              <input
+                type="text"
+                value={closureReasonNote}
+                onChange={(e) => setClosureReasonNote(e.target.value)}
+                placeholder="例如：凱米颱風"
+                className="min-w-40 rounded-lg border border-slate-300 px-3 py-2 text-sm"
               />
             </label>
             {isPublished && (
@@ -602,14 +667,27 @@ export function SchedulePageClient({
             </button>
           </div>
 
+          <p className="mt-2 text-xs text-slate-500">
+            {CLOSURE_REASON_PAY_HINTS[closureReason]}
+          </p>
+
           {closures.length > 0 && (
             <ul className="mt-3 space-y-1 text-xs text-slate-600">
-              {closures.map((c) => (
-                <li key={c.date}>
-                  {c.date} · {c.mode === "planned" ? "預告休診→休息日" : "臨時休診"} · 折抵{" "}
-                  {c.creditHours ?? GOLDEN_SCHEDULE.DUAL_DAY_HOURS}h
-                </li>
-              ))}
+              {closures.map((c) => {
+                const reason = normalizeClosureReason(c.reason);
+                return (
+                  <li key={c.date}>
+                    {c.date} · {CLOSURE_REASON_LABELS[reason]} ·{" "}
+                    {c.mode === "planned" ? "預告" : "臨時"}
+                    {c.mode === "temporary"
+                      ? ` · 折抵 ${c.creditHours ?? GOLDEN_SCHEDULE.DUAL_DAY_HOURS}h`
+                      : reason === "voluntary"
+                        ? " · →休息日"
+                        : ""}
+                    {c.note ? ` · ${c.note}` : ""}
+                  </li>
+                );
+              })}
             </ul>
           )}
         </section>

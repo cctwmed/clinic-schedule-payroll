@@ -25,8 +25,10 @@ import {
   parseGoldenConfig,
   parseScheduleMeta,
   mergeScheduleMeta,
+  normalizeClosureReason,
   type GoldenScheduleConfig,
   type ClosureRecord,
+  type ClosureReason,
 } from "@/lib/schedules/golden-config";
 import { generateGoldenMonthSchedule } from "@/lib/schedules/golden-rotation";
 import { validateSameDayAssignment } from "@/lib/schedules/assignment-validation";
@@ -527,12 +529,14 @@ export async function applyClinicGoldenTemplate(options?: { skipRevalidate?: boo
   return { success: true as const, template: template.label };
 }
 
-/** 標記診所休診日（公佈前→休息日；公佈後→臨時休診並計入工時） */
+/** 標記診所休診日（需指定原因：修假／國定／颱風，影響薪資加發） */
 export async function markClinicClosureDay(
   scheduleId: string,
   workDate: string,
   mode: "planned" | "temporary",
-  creditHours?: number
+  creditHours?: number,
+  reason: ClosureReason = "voluntary",
+  reasonNote?: string
 ) {
   const { data: schedule, error: schErr } = await supabase
     .from("schedules")
@@ -566,6 +570,12 @@ export async function markClinicClosureDay(
 
   const isPublished = schedule.status === "published";
   const effectiveMode = isPublished ? "temporary" : mode;
+  const effectiveReason = normalizeClosureReason(reason);
+  const isHolidayLike =
+    effectiveReason === "national" || effectiveReason === "typhoon";
+
+  // 修假預告→休息日（計入四週休息）；國定／颱風→休診碼（不灌水休息日數）
+  const useRestDay = effectiveMode === "planned" && !isHolidayLike && !!restType?.id;
 
   for (const emp of employees ?? []) {
     await supabase
@@ -575,19 +585,25 @@ export async function markClinicClosureDay(
       .eq("employee_id", emp.id)
       .eq("work_date", workDate);
 
-    if (effectiveMode === "planned" && restType?.id) {
+    if (useRestDay) {
       await supabase.from("shift_assignments").insert({
         schedule_id: scheduleId,
         employee_id: emp.id,
-        shift_type_id: restType.id,
+        shift_type_id: restType!.id,
         work_date: workDate,
         expected_clock_in: "00:00",
         expected_clock_out: "00:00",
         status: "scheduled",
-        note: "預告休診→休息日",
+        note: "診所修假→休息日",
       });
     } else {
       const hours = creditHours ?? 7.67;
+      const reasonLabel =
+        effectiveReason === "national"
+          ? "國定假日休診"
+          : effectiveReason === "typhoon"
+            ? "颱風／天然災害停診"
+            : "診所休診";
       await supabase.from("shift_assignments").insert({
         schedule_id: scheduleId,
         employee_id: emp.id,
@@ -596,23 +612,48 @@ export async function markClinicClosureDay(
         expected_clock_in: "00:00",
         expected_clock_out: "00:00",
         status: "scheduled",
-        note: `closure_credit:${hours}`,
+        note:
+          effectiveMode === "temporary"
+            ? `closure_credit:${hours}|${reasonLabel}`
+            : reasonLabel,
       });
     }
   }
 
+  const meta = parseScheduleMeta(schedule.note);
   const closures: ClosureRecord[] = [
-    ...(parseScheduleMeta(schedule.note).closures ?? []).filter((c) => c.date !== workDate),
-    { date: workDate, mode: effectiveMode, creditHours: creditHours ?? 7.67 },
+    ...(meta.closures ?? []).filter((c) => c.date !== workDate),
+    {
+      date: workDate,
+      mode: effectiveMode,
+      reason: effectiveReason,
+      creditHours: creditHours ?? 7.67,
+      note: reasonNote?.trim() || undefined,
+    },
   ];
+
+  let nationalHolidays = [...(meta.nationalHolidays ?? [])];
+  if (isHolidayLike) {
+    if (!nationalHolidays.includes(workDate)) {
+      nationalHolidays = [...nationalHolidays, workDate];
+    }
+  } else {
+    nationalHolidays = nationalHolidays.filter((d) => d !== workDate);
+  }
 
   await supabase
     .from("schedules")
-    .update({ note: mergeScheduleMeta(schedule.note, { closures }) })
+    .update({
+      note: mergeScheduleMeta(schedule.note, { closures, nationalHolidays }),
+    })
     .eq("id", scheduleId);
 
   revalidatePath("/schedules");
-  return { success: true as const, mode: effectiveMode };
+  return {
+    success: true as const,
+    mode: effectiveMode,
+    reason: effectiveReason,
+  };
 }
 
 /**

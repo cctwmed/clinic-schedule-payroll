@@ -3,7 +3,7 @@ import { monthPeriod, loadComplianceData } from "@/lib/compliance/load-complianc
 import { calculateEmployeePayroll } from "@/lib/payroll/calculator";
 import { calculateOvertimePay } from "@/lib/payroll/overtime-pay";
 import { CLINIC_PAYROLL } from "@/lib/payroll/constants";
-import { parseScheduleMeta } from "@/lib/schedules/golden-config";
+import { parseScheduleMeta, holidayLikeClosureDates, voluntaryClosureDates } from "@/lib/schedules/golden-config";
 import { resolveHolidayDates } from "@/lib/payroll/holiday-attendance-pay";
 import { fetchApprovedLeavesForPeriod } from "@/lib/leave/leave-records-service";
 import { summarizeLeavePayroll } from "@/lib/payroll/leave-deductions";
@@ -42,8 +42,11 @@ export async function fetchMobileSchedule(
   const holidayDates = resolveHolidayDates(
     start,
     end,
-    meta.nationalHolidays ?? [],
-    [...closureDates]
+    [
+      ...(meta.nationalHolidays ?? []),
+      ...holidayLikeClosureDates(meta.closures ?? []),
+    ],
+    voluntaryClosureDates(meta.closures ?? [])
   );
 
   const { data: assignments } = await supabase
@@ -121,12 +124,14 @@ export async function fetchMobilePayslip(
     .maybeSingle();
 
   const meta = parseScheduleMeta(schedule?.note ?? null);
-  const closureDates = (meta.closures ?? []).map((c) => c.date);
   const holidayDates = resolveHolidayDates(
     start,
     end,
-    meta.nationalHolidays ?? [],
-    closureDates
+    [
+      ...(meta.nationalHolidays ?? []),
+      ...holidayLikeClosureDates(meta.closures ?? []),
+    ],
+    voluntaryClosureDates(meta.closures ?? [])
   );
 
   const complianceData = await loadComplianceData(clinicId, start, end);
