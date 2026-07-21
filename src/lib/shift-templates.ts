@@ -67,6 +67,16 @@ export function buildGoldenShiftSlots(): ShiftSlotDef[] {
       sort_order: 1,
     },
     {
+      code: "AFTERNOON",
+      name: "午診",
+      category: "afternoon",
+      default_clock_in: "13:00",
+      default_clock_out: "16:00",
+      planned_hours: 3,
+      color_hex: "#10B981",
+      sort_order: 2,
+    },
+    {
       code: "EVENING",
       name: "晚診",
       category: "evening",
@@ -74,19 +84,8 @@ export function buildGoldenShiftSlots(): ShiftSlotDef[] {
       default_clock_out: GOLDEN_SCHEDULE.EVENING_OUT,
       planned_hours: GOLDEN_SCHEDULE.DUAL_DAY_HOURS - GOLDEN_SCHEDULE.HALF_DAY_HOURS,
       color_hex: "#8B5CF6",
-      sort_order: 2,
+      sort_order: 3,
     },
-    // 未來若啟用午診，取消註解並設定時段即可（shift-labels 已支援 AFTERNOON → 午診）
-    // {
-    //   code: "AFTERNOON",
-    //   name: "午診",
-    //   category: "afternoon",
-    //   default_clock_in: "13:00",
-    //   default_clock_out: "17:00",
-    //   planned_hours: GOLDEN_SCHEDULE.HALF_DAY_HOURS,
-    //   color_hex: "#10B981",
-    //   sort_order: 1.5,
-    // },
     {
       code: "STATUTORY",
       name: "例假",
@@ -137,9 +136,9 @@ export type MorningStartOption = "08:20";
 export function buildGoldenTemplate() {
   return {
     id: "GOLDEN" as const,
-    label: "雙人全正職輪替（黃金班表）",
+    label: "診所輪替黃金班表（雙人／三人）",
     description:
-      "週一／二／四雙人早晚診；週五軌道一僅早診、軌道二早晚診；週三／六／日半日診＋雙週輪替（軌道一休六日並上週三，軌道二休週三）",
+      "模式 A 雙人：週一／二／四早晚；週三僅早診／例假；週五早午或午晚；六日大休或早診。模式 B 三人：週三開早午診，三週角色輪替。",
     dailyRegularHours: GOLDEN_SCHEDULE.DUAL_DAY_HOURS,
     slots: buildGoldenShiftSlots(),
   };

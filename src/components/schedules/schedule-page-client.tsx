@@ -18,11 +18,18 @@ import type { ComplianceIssue } from "@/lib/compliance/types";
 import type { Clinic } from "@/lib/clinic";
 import { GOLDEN_SCHEDULE } from "@/lib/shift-templates";
 import { getRotationLegend } from "@/lib/schedules/golden-rotation";
-import type { GoldenScheduleConfig, ClosureRecord, ClosureReason } from "@/lib/schedules/golden-config";
+import type {
+  GoldenScheduleConfig,
+  ClosureRecord,
+  ClosureReason,
+  ScheduleRotationMode,
+} from "@/lib/schedules/golden-config";
 import {
   CLOSURE_REASON_LABELS,
   CLOSURE_REASON_PAY_HINTS,
+  SCHEDULE_MODE_OPTIONS,
   normalizeClosureReason,
+  normalizeScheduleMode,
 } from "@/lib/schedules/golden-config";
 import { isTaiwanPublicHoliday } from "@/lib/holidays/taiwan-public-holidays";
 import { displayJobTitle } from "@/types/employee";
@@ -79,8 +86,12 @@ export function SchedulePageClient({
   const [closures, setClosures] = useState(initialClosures);
   const [complianceIssues, setComplianceIssues] = useState(initialCompliance);
   const [message, setMessage] = useState<string | null>(null);
+  const [rotationMode, setRotationMode] = useState<ScheduleRotationMode>(
+    normalizeScheduleMode(goldenConfig?.mode)
+  );
   const [employeeAId, setEmployeeAId] = useState(goldenConfig?.employeeAId ?? "");
   const [employeeBId, setEmployeeBId] = useState(goldenConfig?.employeeBId ?? "");
+  const [employeeCId, setEmployeeCId] = useState(goldenConfig?.employeeCId ?? "");
   const [oddWeekTrackForA, setOddWeekTrackForA] = useState<1 | 2>(
     goldenConfig?.oddWeekTrackForA ?? 1
   );
@@ -98,8 +109,10 @@ export function SchedulePageClient({
   useEffect(() => {
     setAssignmentMap(initialMap);
     setClosures(initialClosures);
+    setRotationMode(normalizeScheduleMode(goldenConfig?.mode));
     setEmployeeAId(goldenConfig?.employeeAId ?? "");
     setEmployeeBId(goldenConfig?.employeeBId ?? "");
+    setEmployeeCId(goldenConfig?.employeeCId ?? "");
     setOddWeekTrackForA(goldenConfig?.oddWeekTrackForA ?? 1);
     setIsNavigating(false);
     setPendingCell(null);
@@ -149,7 +162,7 @@ export function SchedulePageClient({
     () => [...shiftTypes, ...offDayShiftTypes],
     [shiftTypes, offDayShiftTypes]
   );
-  const legend = getRotationLegend(oddWeekTrackForA);
+  const legend = getRotationLegend(oddWeekTrackForA, rotationMode);
   const days = useMemo(
     () => Array.from({ length: daysInMonth }, (_, i) => i + 1),
     [daysInMonth]
@@ -319,9 +332,25 @@ export function SchedulePageClient({
       setMessage("員工 A 與 B 必須是不同人");
       return;
     }
+    if (rotationMode === "triple") {
+      if (!employeeCId) {
+        setMessage("三人制請再選擇員工 C");
+        return;
+      }
+      if (employeeCId === employeeAId || employeeCId === employeeBId) {
+        setMessage("員工 A／B／C 必須為不同人");
+        return;
+      }
+      if (employees.length < 3) {
+        setMessage("三人制至少需要 3 位在職護理師");
+        return;
+      }
+    }
+    const modeLabel =
+      SCHEDULE_MODE_OPTIONS.find((o) => o.id === rotationMode)?.label ?? rotationMode;
     if (
       !confirm(
-        `確定為 ${year} 年 ${month} 月一鍵產生黃金班表？\n現有草稿排班將被覆蓋。`
+        `確定為 ${year} 年 ${month} 月一鍵產生班表？\n模式：${modeLabel}\n現有草稿排班將被覆蓋。`
       )
     ) {
       return;
@@ -330,8 +359,10 @@ export function SchedulePageClient({
     startTransition(async () => {
       try {
         const result = await generateGoldenSchedule(schedule.id, {
+          mode: rotationMode,
           employeeAId,
           employeeBId,
+          employeeCId: rotationMode === "triple" ? employeeCId : undefined,
           oddWeekTrackForA,
         });
         if (!result.success) {
@@ -341,7 +372,9 @@ export function SchedulePageClient({
         if (result.assignmentMap) {
           setAssignmentMap(result.assignmentMap);
         }
-        setMessage(`已產生 ${result.count} 筆排班（雙人全正職輪替）`);
+        setMessage(
+          `已產生 ${result.count} 筆排班（${modeLabel}）`
+        );
         router.refresh();
       } catch (err) {
         setMessage(err instanceof Error ? err.message : "產生黃金班表失敗");
@@ -445,7 +478,7 @@ export function SchedulePageClient({
     <>
       <DashboardHeader
         title="排班管理"
-        description={`${clinic.name} — 雙人全正職輪替黃金班表（每週 11 診 · 08:20 到 · 08:30 開診）`}
+        description={`${clinic.name} — 快速排班（雙人／三人模式 · 08:20 到 · 08:30 開診）`}
         action={
           <div className="flex flex-wrap items-center gap-2">
             <button
@@ -484,15 +517,20 @@ export function SchedulePageClient({
 
       <div className="space-y-4 p-6">
         <div className="rounded-xl border border-amber-200 bg-amber-50/80 p-4 text-sm text-amber-900">
-          <p className="font-semibold">雙週火車頭輪替規則（與一鍵產生班表一致）</p>
+          <p className="font-semibold">快速排班模式</p>
           <p className="mt-1 text-amber-800">
-            週一、二、四：兩人早晚診全勤。週五：兩人早診，僅軌道二上晚診（軌道一休晚診）。
-            週三：軌道一早診半天、軌道二例假。六、日：軌道一大休、軌道二早半班。
-            隔週兩人軌道對調（週三／週五晚診／六日班表整組互換）。輪班間隔約 12 小時 20 分（≥ 11 小時安全線）。
+            {rotationMode === "triple"
+              ? "模式 B 三人制：依 ISO 週 % 3 輪替完美週末／週三充電／全勤支援；週三開早午診；平日早午晚各 2 人。"
+              : "模式 A 雙人制：依 ISO 週 % 2 對調週三班／週末班；週三僅早診；週五早午或午晚；六日大休或早診。"}
+            {" "}薪資仍依四週變形：休假不足自動核算休息日加班（855／半天診），加班費免稅不入 50 格式。
           </p>
         </div>
 
-        <div className="grid gap-4 lg:grid-cols-2">
+        <div
+          className={`grid gap-4 ${
+            rotationMode === "triple" ? "lg:grid-cols-3" : "lg:grid-cols-2"
+          }`}
+        >
           <div className="rounded-xl border border-slate-200 bg-white p-4">
             <h3 className="text-sm font-semibold text-slate-800">{legend.track1.title}</h3>
             <ul className="mt-2 list-inside list-disc space-y-1 text-sm text-slate-600">
@@ -508,11 +546,43 @@ export function SchedulePageClient({
                 <li key={item}>{item}</li>
               ))}
             </ul>
-            <p className="mt-3 text-xs text-slate-500">{legend.swapNote}</p>
+            {rotationMode === "dual" && (
+              <p className="mt-3 text-xs text-slate-500">{legend.swapNote}</p>
+            )}
           </div>
+          {rotationMode === "triple" && "track3" in legend && legend.track3 && (
+            <div className="rounded-xl border border-slate-200 bg-white p-4">
+              <h3 className="text-sm font-semibold text-slate-800">{legend.track3.title}</h3>
+              <ul className="mt-2 list-inside list-disc space-y-1 text-sm text-slate-600">
+                {legend.track3.items.map((item) => (
+                  <li key={item}>{item}</li>
+                ))}
+              </ul>
+              <p className="mt-3 text-xs text-slate-500">{legend.swapNote}</p>
+            </div>
+          )}
         </div>
 
         <div className="flex flex-wrap items-end gap-3 rounded-xl border border-slate-200 bg-white p-4">
+          <div>
+            <label className="mb-1 block text-xs font-medium text-slate-600">
+              快速排班模式
+            </label>
+            <select
+              value={rotationMode}
+              onChange={(e) =>
+                setRotationMode(normalizeScheduleMode(e.target.value as ScheduleRotationMode))
+              }
+              disabled={isPublished || isPending}
+              className="min-w-56 rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            >
+              {SCHEDULE_MODE_OPTIONS.map((opt) => (
+                <option key={opt.id} value={opt.id}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+          </div>
           <div>
             <label className="mb-1 block text-xs font-medium text-slate-600">
               員工 A（護理師）
@@ -549,20 +619,42 @@ export function SchedulePageClient({
               ))}
             </select>
           </div>
-          <div>
-            <label className="mb-1 block text-xs font-medium text-slate-600">
-              奇數週員工 A 走
-            </label>
-            <select
-              value={oddWeekTrackForA}
-              onChange={(e) => setOddWeekTrackForA(Number(e.target.value) as 1 | 2)}
-              disabled={isPublished || isPending}
-              className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
-            >
-              <option value={1}>軌道一（週三值班、周五休晚診、六日大休）</option>
-              <option value={2}>軌道二（週三例假、周五晚診、六日早半班）</option>
-            </select>
-          </div>
+          {rotationMode === "triple" && (
+            <div>
+              <label className="mb-1 block text-xs font-medium text-slate-600">
+                員工 C（護理師）
+              </label>
+              <select
+                value={employeeCId}
+                onChange={(e) => setEmployeeCId(e.target.value)}
+                disabled={isPublished || isPending}
+                className="min-w-40 rounded-lg border border-slate-300 px-3 py-2 text-sm"
+              >
+                <option value="">— 請選擇 —</option>
+                {employees.map((emp) => (
+                  <option key={emp.id} value={emp.id}>
+                    {employeeLabel(emp)}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+          {rotationMode === "dual" && (
+            <div>
+              <label className="mb-1 block text-xs font-medium text-slate-600">
+                奇數週員工 A 走
+              </label>
+              <select
+                value={oddWeekTrackForA}
+                onChange={(e) => setOddWeekTrackForA(Number(e.target.value) as 1 | 2)}
+                disabled={isPublished || isPending}
+                className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+              >
+                <option value={1}>軌道一（週三班：週三早診、週五早午、六日大休）</option>
+                <option value={2}>軌道二（週末班：週三例假、週五午晚、六日早診）</option>
+              </select>
+            </div>
+          )}
           {!isPublished && (
             <>
               <button
@@ -576,7 +668,10 @@ export function SchedulePageClient({
               <button
                 type="button"
                 onClick={handleGenerateGolden}
-                disabled={isPending || employees.length < 2}
+                disabled={
+                  isPending ||
+                  employees.length < (rotationMode === "triple" ? 3 : 2)
+                }
                 className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-60"
               >
                 {isPending ? "產生中…" : "一鍵產生黃金班表"}
@@ -698,9 +793,11 @@ export function SchedulePageClient({
           </div>
         )}
 
-        {employees.length < 2 ? (
+        {employees.length < (rotationMode === "triple" ? 3 : 2) ? (
           <div className="rounded-xl border border-dashed border-slate-300 bg-white px-6 py-12 text-center text-sm text-slate-500">
-            請先到「員工管理」新增 2 位護理師，才能產生黃金班表
+            {rotationMode === "triple"
+              ? "請先到「員工管理」新增至少 3 位護理師，才能產生三人制班表"
+              : "請先到「員工管理」新增 2 位護理師，才能產生雙人制班表"}
           </div>
         ) : (
           <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">

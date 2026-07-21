@@ -519,9 +519,9 @@ export async function applyClinicGoldenTemplate(options?: { skipRevalidate?: boo
 
   await supabase
     .from("shift_types")
-    .update({ is_active: false })
+    .update({ is_active: true })
     .eq("clinic_id", clinic.id)
-    .eq("code", "AFTERNOON");
+    .in("code", ["MORNING", "AFTERNOON", "EVENING", "STATUTORY", "REST", "ANNUAL_LEAVE", "CLOSED"]);
 
   if (!options?.skipRevalidate) {
     revalidatePath("/schedules");
@@ -704,8 +704,21 @@ export async function generateGoldenSchedule(
   scheduleId: string,
   config: GoldenScheduleConfig
 ) {
+  const mode = config.mode === "triple" ? "triple" : "dual";
+
   if (config.employeeAId === config.employeeBId) {
     return { success: false as const, error: "員工 A 與 B 不可為同一人" };
+  }
+  if (mode === "triple") {
+    if (!config.employeeCId) {
+      return { success: false as const, error: "三人制請選擇員工 C" };
+    }
+    if (
+      config.employeeCId === config.employeeAId ||
+      config.employeeCId === config.employeeBId
+    ) {
+      return { success: false as const, error: "員工 A／B／C 必須為不同人" };
+    }
   }
 
   const { data: schedule, error: scheduleError } = await supabase
@@ -737,8 +750,10 @@ export async function generateGoldenSchedule(
     schedule.month,
     daysInMonth,
     {
+      mode,
       employeeAId: config.employeeAId,
       employeeBId: config.employeeBId,
+      employeeCId: config.employeeCId,
       oddWeekTrackForA: config.oddWeekTrackForA ?? 1,
     },
     shiftTypes ?? []
@@ -770,7 +785,13 @@ export async function generateGoldenSchedule(
   });
 
   if (rows.length === 0) {
-    return { success: false as const, error: "無法產生班表，請先套用黃金班別" };
+    return {
+      success: false as const,
+      error:
+        mode === "triple"
+          ? "無法產生三人班表，請先套用黃金班別（需含早／午／晚診）"
+          : "無法產生班表，請先套用黃金班別",
+    };
   }
 
   const { error: insertError } = await supabase.from("shift_assignments").insert(rows);
@@ -780,7 +801,13 @@ export async function generateGoldenSchedule(
     .from("schedules")
     .update({
       note: mergeScheduleMeta(schedule.note, {
-        golden: { ...config, oddWeekTrackForA: config.oddWeekTrackForA ?? 1 },
+        golden: {
+          mode,
+          employeeAId: config.employeeAId,
+          employeeBId: config.employeeBId,
+          employeeCId: mode === "triple" ? config.employeeCId : undefined,
+          oddWeekTrackForA: config.oddWeekTrackForA ?? 1,
+        },
       }),
     })
     .eq("id", scheduleId);
@@ -793,7 +820,7 @@ export async function generateGoldenSchedule(
     assignmentMap[row.work_date][row.shift_type_id] = row.employee_id;
   }
 
-  return { success: true as const, count: rows.length, assignmentMap };
+  return { success: true as const, count: rows.length, assignmentMap, mode };
 }
 
 export async function bindLineUser(employeeId: string, lineUserId: string, displayName?: string) {

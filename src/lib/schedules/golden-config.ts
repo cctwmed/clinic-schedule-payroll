@@ -1,8 +1,32 @@
 import type { RotationTrack } from "@/lib/shift-templates";
 
+/** 快速排班模式：雙人長週末 vs 三人三週輪替 */
+export type ScheduleRotationMode = "dual" | "triple";
+
+export const SCHEDULE_MODE_OPTIONS: {
+  id: ScheduleRotationMode;
+  label: string;
+  shortLabel: string;
+}[] = [
+  {
+    id: "dual",
+    label: "模式 A：雙人制（週三僅早診）",
+    shortLabel: "雙人制",
+  },
+  {
+    id: "triple",
+    label: "模式 B：三人制（週三開早午診）",
+    shortLabel: "三人制",
+  },
+];
+
 export interface GoldenScheduleConfig {
+  /** 缺省 dual（相容舊資料） */
+  mode?: ScheduleRotationMode;
   employeeAId: string;
   employeeBId: string;
+  /** 模式 B 第三人 */
+  employeeCId?: string;
   oddWeekTrackForA?: RotationTrack;
 }
 
@@ -48,6 +72,12 @@ export interface ScheduleMeta {
   nationalHolidays?: string[];
 }
 
+export function normalizeScheduleMode(
+  mode: ScheduleRotationMode | undefined | null
+): ScheduleRotationMode {
+  return mode === "triple" ? "triple" : "dual";
+}
+
 export function normalizeClosureReason(
   reason: ClosureReason | undefined | null
 ): ClosureReason {
@@ -87,9 +117,12 @@ export function parseScheduleMeta(note: string | null): ScheduleMeta {
 export function parseGoldenConfig(note: string | null): GoldenScheduleConfig | null {
   const meta = parseScheduleMeta(note);
   if (meta.golden?.employeeAId && meta.golden?.employeeBId) {
+    const mode = normalizeScheduleMode(meta.golden.mode);
     return {
+      mode,
       employeeAId: meta.golden.employeeAId,
       employeeBId: meta.golden.employeeBId,
+      employeeCId: meta.golden.employeeCId,
       oddWeekTrackForA: meta.golden.oddWeekTrackForA ?? 1,
     };
   }
@@ -102,7 +135,11 @@ export function serializeScheduleMeta(meta: ScheduleMeta): string {
 
 export function serializeGoldenConfig(config: GoldenScheduleConfig): string {
   return serializeScheduleMeta({
-    golden: { ...config, oddWeekTrackForA: config.oddWeekTrackForA ?? 1 },
+    golden: {
+      ...config,
+      mode: normalizeScheduleMode(config.mode),
+      oddWeekTrackForA: config.oddWeekTrackForA ?? 1,
+    },
   });
 }
 
