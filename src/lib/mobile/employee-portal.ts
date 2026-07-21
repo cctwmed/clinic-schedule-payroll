@@ -236,7 +236,7 @@ export async function fetchMobilePayslip(
             : `工時 ${d.totalWorkHours}h > 8h → 加倍 ${d.doublePay} + 延長工時 ${d.overtimePay} 元`,
       })),
     },
-    note: "底薪 30,000＋職務 2,000＋全勤 2,000；平日加班 142/h；國定假日出勤 1136/天（≤8h），超過依 190/237 元/h",
+    note: "底薪 30,000＋職務 2,000＋全勤 2,000；時薪基數 142（34,000÷240）；休息日半天診加班固定 855；加班／國定≤8h 免稅不入 50 格式",
   };
 }
 

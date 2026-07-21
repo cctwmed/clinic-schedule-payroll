@@ -20,6 +20,7 @@ export default async function SchedulesPage({ searchParams }: PageProps) {
       <>
         <LegalWarningBanner />
         <SchedulePageClient
+          key={`${year}-${month}-${data.schedule.id}`}
           initialYear={year}
           initialMonth={month}
           clinic={data.clinic}

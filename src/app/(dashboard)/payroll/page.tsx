@@ -34,6 +34,7 @@ export default async function PayrollPage({ searchParams }: PageProps) {
           annualSummary={data.annualSummary}
           leavePayoutsDue={data.leavePayoutsDue}
           pendingEarlyPunchReview={data.pendingEarlyPunchReview}
+          insuranceBracketWarnings={data.insuranceBracketWarnings}
         />
       </>
     );

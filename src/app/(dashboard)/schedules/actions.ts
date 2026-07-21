@@ -89,21 +89,7 @@ export async function fetchSchedulePageData(year: number, month: number) {
       s.code === "CLOSED"
   );
 
-  const compPeriod = compliancePeriod(year, month);
-  const complianceData = await loadComplianceData(clinic.id, compPeriod.start, compPeriod.end);
-  const complianceIssues: ComplianceIssue[] = checkCompliance({
-    periodStart: compPeriod.start,
-    periodEnd: compPeriod.end,
-    shifts: complianceData.shifts,
-    dayOffs: complianceData.dayOffs,
-    clocks: complianceData.clocks,
-    employeeIds: (employees ?? []).map((e) => ({ id: e.id, name: e.name })),
-    employeeAId: goldenConfig?.employeeAId,
-    oddWeekTrackForA: goldenConfig?.oddWeekTrackForA ?? 1,
-  }).filter((i) =>
-    complianceIssueOverlapsRange(i, compPeriod.monthStart, compPeriod.monthEnd)
-  );
-
+  // 合規檢查改由客戶端非同步載入，避免切換月份時整頁卡住
   const publicHolidays = listTaiwanPublicHolidaysInRange(monthStart, monthEnd);
 
   return {
@@ -114,11 +100,44 @@ export async function fetchSchedulePageData(year: number, month: number) {
     employees: (employees ?? []) as ScheduleEmployee[],
     assignmentMap,
     daysInMonth: getDaysInMonth(year, month),
-    complianceIssues,
+    complianceIssues: [] as ComplianceIssue[],
     goldenConfig,
     closures: scheduleMeta.closures ?? [],
     publicHolidays,
   };
+}
+
+/** 非同步載入當月合規警示（不擋班表主畫面） */
+export async function fetchScheduleComplianceIssues(
+  year: number,
+  month: number
+): Promise<ComplianceIssue[]> {
+  const clinic = await getDefaultClinic();
+  const { start: monthStart, end: monthEnd } = monthPeriod(year, month);
+  const compPeriod = compliancePeriod(year, month);
+
+  const [{ data: employees }, schedule] = await Promise.all([
+    supabase
+      .from("employees")
+      .select("id, name")
+      .eq("clinic_id", clinic.id)
+      .eq("status", "active"),
+    getOrCreateSchedule(clinic.id, year, month),
+  ]);
+
+  const goldenConfig = parseGoldenConfig(schedule.note);
+  const complianceData = await loadComplianceData(clinic.id, compPeriod.start, compPeriod.end);
+
+  return checkCompliance({
+    periodStart: compPeriod.start,
+    periodEnd: compPeriod.end,
+    shifts: complianceData.shifts,
+    dayOffs: complianceData.dayOffs,
+    clocks: complianceData.clocks,
+    employeeIds: (employees ?? []).map((e) => ({ id: e.id, name: e.name })),
+    employeeAId: goldenConfig?.employeeAId,
+    oddWeekTrackForA: goldenConfig?.oddWeekTrackForA ?? 1,
+  }).filter((i) => complianceIssueOverlapsRange(i, monthStart, monthEnd));
 }
 
 async function getOrCreateSchedule(
@@ -457,7 +476,7 @@ async function notifySchedulePublished(scheduleId: string) {
 }
 
 /** 套用黃金班表班別（08:20 早診 / 16:00 晚診 / 例假 / 休息日） */
-export async function applyClinicGoldenTemplate() {
+export async function applyClinicGoldenTemplate(options?: { skipRevalidate?: boolean }) {
   const clinic = await getDefaultClinic();
   const template = getShiftTemplate();
 
@@ -502,7 +521,9 @@ export async function applyClinicGoldenTemplate() {
     .eq("clinic_id", clinic.id)
     .eq("code", "AFTERNOON");
 
-  revalidatePath("/schedules");
+  if (!options?.skipRevalidate) {
+    revalidatePath("/schedules");
+  }
   return { success: true as const, template: template.label };
 }
 
@@ -657,7 +678,7 @@ export async function generateGoldenSchedule(
     return { success: false as const, error: "已發布的班表無法重新產生" };
   }
 
-  await applyClinicGoldenTemplate();
+  await applyClinicGoldenTemplate({ skipRevalidate: true });
 
   const { data: shiftTypes, error: stError } = await supabase
     .from("shift_types")
@@ -724,7 +745,14 @@ export async function generateGoldenSchedule(
     .eq("id", scheduleId);
 
   revalidatePath("/schedules");
-  return { success: true as const, count: rows.length };
+
+  const assignmentMap: DayAssignmentMap = {};
+  for (const row of rows) {
+    if (!assignmentMap[row.work_date]) assignmentMap[row.work_date] = {};
+    assignmentMap[row.work_date][row.shift_type_id] = row.employee_id;
+  }
+
+  return { success: true as const, count: rows.length, assignmentMap };
 }
 
 export async function bindLineUser(employeeId: string, lineUserId: string, displayName?: string) {

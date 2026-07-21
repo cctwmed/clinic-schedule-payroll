@@ -106,6 +106,15 @@ export function summarizeLeavePayroll(
         deduction,
         note: "安胎假不給薪；狀態維持在職，勞健保／勞退持續",
       });
+    } else if (row.leave_type === "menstrual") {
+      fullPayLeaveHours += hours;
+      leaveDetails.push({
+        leaveType: row.leave_type,
+        workDate: row.work_date,
+        hours,
+        deduction: 0,
+        note: "生理假全薪；不扣全勤",
+      });
     } else {
       fullPayLeaveHours += hours;
       leaveDetails.push({
@@ -113,6 +122,7 @@ export function summarizeLeavePayroll(
         workDate: row.work_date,
         hours,
         deduction: 0,
+        note: "法定假別全薪；不扣全勤",
       });
     }
   }

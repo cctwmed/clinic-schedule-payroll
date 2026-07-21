@@ -13,8 +13,10 @@ export const CLINIC_PAYROLL = {
   TOTAL_FIXED_SALARY: 34_000,
   /** 勞健保申報基數合計 */
   INSURANCE_REPORT_BASE: 34_000,
-  /** 平日加班／特種出勤時薪基數（34000÷30÷8 四捨五入） */
+  /** 平日加班／特種出勤時薪基數（34,000 ÷ 240＝142） */
   OT_HOURLY_RATE: 142,
+  /** 休息日半天診（4h）加班費固定值，避免進位爭議 */
+  REST_DAY_HALF_DAY_PAY: 855,
   /** 國定假日出勤：法定加倍工資（142×8） */
   HOLIDAY_DOUBLE_PAY: 1_136,
   /** 國定假日第 9–10 小時時薪（142×1.34 四捨五入） */
@@ -74,7 +76,7 @@ export function isYearEndBonusMonth(month: number): boolean {
   return month === 12;
 }
 
-/** 非經常性薪資合計（不計勞健保基數，併入 50 格式申報） */
+/** 非經常性給與合計（會計分類用；含國定假日出勤等） */
 export function sumNonRecurringBonus(item: {
   flexibleBonus: number;
   quarterlyBonus: number;
@@ -88,5 +90,26 @@ export function sumNonRecurringBonus(item: {
     item.yearEndBonus +
     (item.annualLeavePayout ?? 0) +
     (item.specialAttendancePay ?? 0)
+  );
+}
+
+/**
+ * 所得稅 50 格式參考合計（免稅項目絕對不列入）：
+ * - 不含：平日加班、休息日加班、國定假日 ≤8h 加倍工資
+ * - 含：彈性／季／年終獎金、特休折現；國定超過 8h 延長加班費另列
+ */
+export function sumTaxForm50NonRecurring(item: {
+  flexibleBonus: number;
+  quarterlyBonus: number;
+  yearEndBonus: number;
+  annualLeavePayout?: number;
+  holidayOvertimePay?: number;
+}): number {
+  return (
+    item.flexibleBonus +
+    item.quarterlyBonus +
+    item.yearEndBonus +
+    (item.annualLeavePayout ?? 0) +
+    (item.holidayOvertimePay ?? 0)
   );
 }

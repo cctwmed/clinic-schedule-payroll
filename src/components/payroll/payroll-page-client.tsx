@@ -8,6 +8,7 @@ import { savePayrollRun } from "@/app/(dashboard)/payroll/actions";
 import type { ComplianceIssue } from "@/lib/compliance/types";
 import type { LeavePayoutDue } from "@/lib/leave/service";
 import type { AnnualPayrollSummary } from "@/lib/payroll/annual-summary";
+import type { InsuranceBracketWarning } from "@/lib/payroll/insurance-bracket-warnings";
 import { CLINIC_PAYROLL } from "@/lib/payroll/constants";
 import {
   clampFlexibleBonus,
@@ -43,6 +44,7 @@ interface PayrollPageClientProps {
   annualSummary: AnnualPayrollSummary | null;
   leavePayoutsDue: LeavePayoutDue[];
   pendingEarlyPunchReview?: number;
+  insuranceBracketWarnings?: InsuranceBracketWarning[];
 }
 
 export function PayrollPageClient({
@@ -60,6 +62,7 @@ export function PayrollPageClient({
   annualSummary,
   leavePayoutsDue,
   pendingEarlyPunchReview = 0,
+  insuranceBracketWarnings = [],
 }: PayrollPageClientProps) {
   const router = useRouter();
   const [lineItems, setLineItems] = useState(initialLineItems);
@@ -234,6 +237,35 @@ export function PayrollPageClient({
               前往打卡紀錄審核 →
             </Link>
           </div>
+        )}
+
+        {insuranceBracketWarnings.length > 0 && (
+          <section className="rounded-xl border-2 border-amber-500 bg-amber-50 px-4 py-4 shadow-sm">
+            <h3 className="text-base font-bold text-amber-950">
+              勞保投保級距調整提醒
+            </h3>
+            <p className="mt-1 text-sm text-amber-900">
+              以下員工連續三個月「含加班費之總應發薪資」已高於目前投保級距，依勞保條例請調整投保薪資。
+            </p>
+            <ul className="mt-3 space-y-2">
+              {insuranceBracketWarnings.map((w) => (
+                <li
+                  key={w.employeeId}
+                  className="rounded-lg border border-amber-400 bg-white px-3 py-2 text-sm text-amber-950"
+                >
+                  <p className="font-semibold text-red-700">{w.message}</p>
+                  <p className="mt-1 text-xs text-amber-800">
+                    {w.months
+                      .map(
+                        (m) =>
+                          `${m.year}/${m.month}：${formatMoney(m.grossPay)}`
+                      )
+                      .join(" · ")}
+                  </p>
+                </li>
+              ))}
+            </ul>
+          </section>
         )}
 
         {hasLeavePayout && (
@@ -415,9 +447,10 @@ export function PayrollPageClient({
               {year} 年度所得彙總（50 格式參考）
             </h3>
             <p className="mt-1 text-sm text-slate-500">
-              經常性薪資 {formatMoney(annualSummary.clinicRecurring)} ＋ 非經常性獎金{" "}
-              {formatMoney(annualSummary.clinicNonRecurring)} ＝ 年度應發{" "}
-              {formatMoney(annualSummary.clinicTotalGross)}
+              經常性薪資 {formatMoney(annualSummary.clinicRecurring)} ＋ 非經常性（50
+              格式應稅參考）{formatMoney(annualSummary.clinicNonRecurring)} ＝ 年度參考合計{" "}
+              {formatMoney(annualSummary.clinicTotalGross)}。加班費（平日／休息日）與國定假日
+              ≤8h 加發工資免稅，不列入 50 格式。
             </p>
             <div className="mt-3 overflow-x-auto">
               <table className="min-w-full text-sm">
@@ -470,6 +503,7 @@ export function PayrollPageClient({
           <h3 className="mb-3 text-sm font-semibold text-slate-800">員工薪資單明細</h3>
           <p className="mb-3 text-xs text-slate-500">
             應領 = 固定薪 + 加班 + 津貼／獎金；實領 = 應領 − 勞健保 − 事假／病假扣款。
+            全勤僅因事假／普通病假按比例扣除；法定假別（特休、婚假、喪假、產假、安胎、生理假等）不扣全勤。
           </p>
           {lineItems.length === 0 ? (
             <div className="rounded-xl border border-dashed border-slate-300 bg-white px-6 py-12 text-center text-sm text-slate-500">
@@ -715,15 +749,17 @@ function SalaryStructureBanner() {
           勞健保個人自付於實領扣除；雇主負擔與 6% 勞退提繳列入「付給政府／診所規費」（請於員工管理設定各項金額）
         </li>
         <li>
-          平日加班／特種出勤時薪基數 {CLINIC_PAYROLL.OT_HOURLY_RATE} 元；國定假日／颱風天{" "}
-          {formatMoney(CLINIC_PAYROLL.HOLIDAY_DOUBLE_PAY)}／天（≤8h）；超過另計{" "}
-          {CLINIC_PAYROLL.HOLIDAY_OT_TIER1_HOURLY}／{CLINIC_PAYROLL.HOLIDAY_OT_TIER2_HOURLY}{" "}
-          元/h。四週變形應休不足時，短少日數以休息日出勤半天診計算：
-          （{CLINIC_PAYROLL.OT_HOURLY_RATE}×1.34×2h）＋（{CLINIC_PAYROLL.OT_HOURLY_RATE}×1.67×2h），
-          併入應發且不因工時未滿 160h 略過。
+          平日加班時薪基數 {CLINIC_PAYROLL.OT_HOURLY_RATE} 元（34,000÷240）；國定假日／颱風天{" "}
+          {formatMoney(CLINIC_PAYROLL.HOLIDAY_DOUBLE_PAY)}／天（≤8h 加倍工資，免稅不入 50
+          格式）；超過另計 {CLINIC_PAYROLL.HOLIDAY_OT_TIER1_HOURLY}／
+          {CLINIC_PAYROLL.HOLIDAY_OT_TIER2_HOURLY} 元/h。四週變形應休不足時，短少日數以「休息日」標記，
+          並以半天診固定加班費 {formatMoney(CLINIC_PAYROLL.REST_DAY_HALF_DAY_PAY)}／日計入應發（免稅）。
         </li>
         <li>
-          特休未休畢折現：(月薪 ÷ 30) × 未休天數，到期或離職時併入當月非經常性薪資
+          全勤獎金僅事假／普通病假依比例扣除；特休、婚假、喪假、產假、安胎假、生理假等法定假別不扣全勤。
+        </li>
+        <li>
+          特休未休畢折現：(月薪 ÷ 30) × 未休天數，到期或離職時併入當月非經常性薪資（可入 50 格式）
         </li>
         <li>
           彈性獎金與季獎金固定於 3、6、9、12 月發放；彈性獎金{" "}

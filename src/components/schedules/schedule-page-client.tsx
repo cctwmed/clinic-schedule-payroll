@@ -1,11 +1,12 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useMemo, useState, useTransition } from "react";
+import { memo, useEffect, useMemo, useState, useTransition } from "react";
 import { DashboardHeader } from "@/components/layout/sidebar";
 import { ComplianceAlertList } from "@/components/compliance/compliance-alert-list";
 import {
   applyClinicGoldenTemplate,
+  fetchScheduleComplianceIssues,
   generateGoldenSchedule,
   markClinicClosureDay,
   markHalfDaySchedule,
@@ -58,16 +59,19 @@ export function SchedulePageClient({
   employees,
   assignmentMap: initialMap,
   daysInMonth,
-  complianceIssues,
+  complianceIssues: initialCompliance,
   goldenConfig,
   closures: initialClosures,
   publicHolidays,
 }: SchedulePageClientProps) {
   const router = useRouter();
-  const [year] = useState(initialYear);
-  const [month] = useState(initialMonth);
+  // 直接用 props，避免軟導覽後 useState 初始值卡住
+  const year = initialYear;
+  const month = initialMonth;
+
   const [assignmentMap, setAssignmentMap] = useState(initialMap);
   const [closures, setClosures] = useState(initialClosures);
+  const [complianceIssues, setComplianceIssues] = useState(initialCompliance);
   const [message, setMessage] = useState<string | null>(null);
   const [employeeAId, setEmployeeAId] = useState(goldenConfig?.employeeAId ?? "");
   const [employeeBId, setEmployeeBId] = useState(goldenConfig?.employeeBId ?? "");
@@ -78,7 +82,35 @@ export function SchedulePageClient({
   const [closureCreditHours, setClosureCreditHours] = useState<number>(
     GOLDEN_SCHEDULE.DUAL_DAY_HOURS
   );
+  /** 僅鎖定正在儲存的格子，避免整張表 disabled 造成卡頓 */
+  const [pendingCell, setPendingCell] = useState<string | null>(null);
+  const [isNavigating, setIsNavigating] = useState(false);
   const [isPending, startTransition] = useTransition();
+
+  useEffect(() => {
+    setAssignmentMap(initialMap);
+    setClosures(initialClosures);
+    setEmployeeAId(goldenConfig?.employeeAId ?? "");
+    setEmployeeBId(goldenConfig?.employeeBId ?? "");
+    setOddWeekTrackForA(goldenConfig?.oddWeekTrackForA ?? 1);
+    setIsNavigating(false);
+    setPendingCell(null);
+  }, [schedule.id, year, month]); // eslint-disable-line react-hooks/exhaustive-deps -- 僅在換月／換班表時同步伺服器資料
+
+  useEffect(() => {
+    let cancelled = false;
+    setComplianceIssues([]);
+    void fetchScheduleComplianceIssues(year, month)
+      .then((issues) => {
+        if (!cancelled) setComplianceIssues(issues);
+      })
+      .catch(() => {
+        if (!cancelled) setComplianceIssues([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [year, month, schedule.id]);
 
   const closureDateSet = useMemo(
     () => new Set(closures.map((c) => c.date)),
@@ -95,8 +127,20 @@ export function SchedulePageClient({
     [shiftTypes]
   );
 
+  const employeeOptions = useMemo(
+    () =>
+      employees.map((emp) => ({
+        id: emp.id,
+        label: emp.name,
+      })),
+    [employees]
+  );
+
   const isPublished = schedule.status === "published";
-  const allColumns = [...shiftTypes, ...offDayShiftTypes];
+  const allColumns = useMemo(
+    () => [...shiftTypes, ...offDayShiftTypes],
+    [shiftTypes, offDayShiftTypes]
+  );
   const legend = getRotationLegend(oddWeekTrackForA);
   const days = useMemo(
     () => Array.from({ length: daysInMonth }, (_, i) => i + 1),
@@ -113,12 +157,15 @@ export function SchedulePageClient({
       newMonth = 12;
       newYear--;
     }
+    setIsNavigating(true);
+    setMessage(`正在載入 ${newYear} 年 ${newMonth} 月…`);
     router.push(`/schedules?year=${newYear}&month=${newMonth}`);
   }
 
-  function handleAssign(workDate: string, shift: ShiftType, employeeId: string) {
+  async function handleAssign(workDate: string, shift: ShiftType, employeeId: string) {
     if (isPublished) return;
 
+    const cellKey = `${workDate}:${shift.id}`;
     const prevValue = assignmentMap[workDate]?.[shift.id] ?? "";
     const value = employeeId || null;
 
@@ -127,8 +174,9 @@ export function SchedulePageClient({
       [workDate]: { ...prev[workDate], [shift.id]: value },
     }));
     setMessage(null);
+    setPendingCell(cellKey);
 
-    startTransition(async () => {
+    try {
       const result = await saveScheduleAssignment(
         schedule.id,
         workDate,
@@ -144,7 +192,15 @@ export function SchedulePageClient({
         }));
         setMessage(result.error ?? "儲存失敗");
       }
-    });
+    } catch (err) {
+      setAssignmentMap((prev) => ({
+        ...prev,
+        [workDate]: { ...prev[workDate], [shift.id]: prevValue || null },
+      }));
+      setMessage(err instanceof Error ? err.message : "儲存失敗");
+    } finally {
+      setPendingCell((cur) => (cur === cellKey ? null : cur));
+    }
   }
 
   function handleRowClosure(workDate: string) {
@@ -152,26 +208,29 @@ export function SchedulePageClient({
       setMessage("已發布班表請用下方休診區塊設定臨時休診");
       return;
     }
-    const modeLabel = "預告休診（公佈前）";
-    if (!confirm(`確定將 ${workDate} 標記為全天休診？\n${modeLabel}`)) return;
+    if (!confirm(`確定將 ${workDate} 標記為全天休診？\n預告休診（公佈前）`)) return;
 
     startTransition(async () => {
-      const result = await markClinicClosureDay(
-        schedule.id,
-        workDate,
-        "planned",
-        GOLDEN_SCHEDULE.DUAL_DAY_HOURS
-      );
-      if (!result.success) {
-        setMessage(result.error);
-        return;
+      try {
+        const result = await markClinicClosureDay(
+          schedule.id,
+          workDate,
+          "planned",
+          GOLDEN_SCHEDULE.DUAL_DAY_HOURS
+        );
+        if (!result.success) {
+          setMessage(result.error);
+          return;
+        }
+        setClosures((prev) => [
+          ...prev.filter((c) => c.date !== workDate),
+          { date: workDate, mode: "planned", creditHours: GOLDEN_SCHEDULE.DUAL_DAY_HOURS },
+        ]);
+        setMessage(`已標記 ${workDate} 為休診日`);
+        router.refresh();
+      } catch (err) {
+        setMessage(err instanceof Error ? err.message : "休診標記失敗");
       }
-      setClosures((prev) => [
-        ...prev.filter((c) => c.date !== workDate),
-        { date: workDate, mode: "planned", creditHours: GOLDEN_SCHEDULE.DUAL_DAY_HOURS },
-      ]);
-      setMessage(`已標記 ${workDate} 為休診日`);
-      router.refresh();
     });
   }
 
@@ -194,24 +253,36 @@ export function SchedulePageClient({
     }));
 
     startTransition(async () => {
-      const result = await markHalfDaySchedule(schedule.id, workDate);
-      if (!result.success) {
+      try {
+        const result = await markHalfDaySchedule(schedule.id, workDate);
+        if (!result.success) {
+          setAssignmentMap((prev) => ({
+            ...prev,
+            [workDate]: { ...prev[workDate], [eveningShiftId]: prevEvening },
+          }));
+          setMessage(result.error);
+          return;
+        }
+        setMessage(`已將 ${workDate} 設為半日診（僅早診）`);
+      } catch (err) {
         setAssignmentMap((prev) => ({
           ...prev,
           [workDate]: { ...prev[workDate], [eveningShiftId]: prevEvening },
         }));
-        setMessage(result.error);
-        return;
+        setMessage(err instanceof Error ? err.message : "半日診設定失敗");
       }
-      setMessage(`已將 ${workDate} 設為半日診（僅早診）`);
     });
   }
 
   function handleApplyGoldenTemplate() {
     startTransition(async () => {
-      const result = await applyClinicGoldenTemplate();
-      setMessage(`已套用「${result.template}」（早診 ${GOLDEN_SCHEDULE.MORNING_IN} 到）`);
-      router.refresh();
+      try {
+        const result = await applyClinicGoldenTemplate();
+        setMessage(`已套用「${result.template}」（早診 ${GOLDEN_SCHEDULE.MORNING_IN} 到）`);
+        router.refresh();
+      } catch (err) {
+        setMessage(err instanceof Error ? err.message : "套用黃金班別失敗");
+      }
     });
   }
 
@@ -233,17 +304,24 @@ export function SchedulePageClient({
     }
 
     startTransition(async () => {
-      const result = await generateGoldenSchedule(schedule.id, {
-        employeeAId,
-        employeeBId,
-        oddWeekTrackForA,
-      });
-      if (!result.success) {
-        setMessage(result.error);
-        return;
+      try {
+        const result = await generateGoldenSchedule(schedule.id, {
+          employeeAId,
+          employeeBId,
+          oddWeekTrackForA,
+        });
+        if (!result.success) {
+          setMessage(result.error);
+          return;
+        }
+        if (result.assignmentMap) {
+          setAssignmentMap(result.assignmentMap);
+        }
+        setMessage(`已產生 ${result.count} 筆排班（雙人全正職輪替）`);
+        router.refresh();
+      } catch (err) {
+        setMessage(err instanceof Error ? err.message : "產生黃金班表失敗");
       }
-      setMessage(`已產生 ${result.count} 筆排班（雙人全正職輪替）`);
-      router.refresh();
     });
   }
 
@@ -268,22 +346,26 @@ export function SchedulePageClient({
     }
 
     startTransition(async () => {
-      const result = await markClinicClosureDay(
-        schedule.id,
-        closureDate,
-        isPublished ? "temporary" : "planned",
-        closureCreditHours
-      );
-      if (!result.success) {
-        setMessage(result.error);
-        return;
+      try {
+        const result = await markClinicClosureDay(
+          schedule.id,
+          closureDate,
+          isPublished ? "temporary" : "planned",
+          closureCreditHours
+        );
+        if (!result.success) {
+          setMessage(result.error);
+          return;
+        }
+        setMessage(
+          isPublished
+            ? `已標記 ${closureDate} 為臨時休診，工時 ${closureCreditHours}h 計入四週結算（不扣薪）`
+            : `已標記 ${closureDate} 為休診日，員工該日改為休息日`
+        );
+        router.refresh();
+      } catch (err) {
+        setMessage(err instanceof Error ? err.message : "休診標記失敗");
       }
-      setMessage(
-        isPublished
-          ? `已標記 ${closureDate} 為臨時休診，工時 ${closureCreditHours}h 計入四週結算（不扣薪）`
-          : `已標記 ${closureDate} 為休診日，員工該日改為休息日`
-      );
-      router.refresh();
     });
   }
 
@@ -297,16 +379,22 @@ export function SchedulePageClient({
     }
 
     startTransition(async () => {
-      const result = await publishSchedule(schedule.id);
-      if (!result.success) {
-        setMessage(result.error);
-        return;
+      try {
+        const result = await publishSchedule(schedule.id);
+        if (!result.success) {
+          setMessage(result.error);
+          return;
+        }
+        setMessage(
+          `班表已發布！已成功通知 ${result.notified} 位員工` +
+            (result.notifyErrors?.length
+              ? `（部分失敗：${result.notifyErrors.join("；")}）`
+              : "")
+        );
+        router.refresh();
+      } catch (err) {
+        setMessage(err instanceof Error ? err.message : "發布失敗");
       }
-      setMessage(
-        `班表已發布！已成功通知 ${result.notified} 位員工` +
-          (result.notifyErrors?.length ? `（部分失敗：${result.notifyErrors.join("；")}）` : "")
-      );
-      router.refresh();
     });
   }
 
@@ -314,6 +402,8 @@ export function SchedulePageClient({
     const title = displayJobTitle(emp.job_title, "nurse");
     return title ? `${emp.name}（${title}）` : emp.name;
   }
+
+  const busy = isPending || isNavigating;
 
   return (
     <>
@@ -323,24 +413,30 @@ export function SchedulePageClient({
         action={
           <div className="flex flex-wrap items-center gap-2">
             <button
+              type="button"
               onClick={() => changeMonth(-1)}
-              className="rounded-lg border border-slate-300 px-3 py-2 text-sm hover:bg-slate-50"
+              disabled={isNavigating}
+              className="rounded-lg border border-slate-300 px-3 py-2 text-sm hover:bg-slate-50 disabled:opacity-60"
             >
               ← 上個月
             </button>
             <span className="min-w-28 text-center text-sm font-semibold text-slate-800">
               {year} 年 {month} 月
+              {isNavigating ? "…" : ""}
             </span>
             <button
+              type="button"
               onClick={() => changeMonth(1)}
-              className="rounded-lg border border-slate-300 px-3 py-2 text-sm hover:bg-slate-50"
+              disabled={isNavigating}
+              className="rounded-lg border border-slate-300 px-3 py-2 text-sm hover:bg-slate-50 disabled:opacity-60"
             >
               下個月 →
             </button>
             {!isPublished && (
               <button
+                type="button"
                 onClick={handlePublish}
-                disabled={isPending}
+                disabled={busy}
                 className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-60"
               >
                 確認發布班表
@@ -434,6 +530,7 @@ export function SchedulePageClient({
           {!isPublished && (
             <>
               <button
+                type="button"
                 onClick={handleApplyGoldenTemplate}
                 disabled={isPending}
                 className="rounded-lg border border-blue-600 px-4 py-2 text-sm font-medium text-blue-600 hover:bg-blue-50 disabled:opacity-60"
@@ -441,11 +538,12 @@ export function SchedulePageClient({
                 套用黃金班別
               </button>
               <button
+                type="button"
                 onClick={handleGenerateGolden}
                 disabled={isPending || employees.length < 2}
                 className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-60"
               >
-                一鍵產生黃金班表
+                {isPending ? "產生中…" : "一鍵產生黃金班表"}
               </button>
             </>
           )}
@@ -472,7 +570,6 @@ export function SchedulePageClient({
                 type="date"
                 value={closureDate}
                 onChange={(e) => setClosureDate(e.target.value)}
-                disabled={isPending}
                 className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
               />
             </label>
@@ -484,7 +581,6 @@ export function SchedulePageClient({
                 <select
                   value={closureCreditHours}
                   onChange={(e) => setClosureCreditHours(Number(e.target.value))}
-                  disabled={isPending}
                   className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
                 >
                   <option value={GOLDEN_SCHEDULE.DUAL_DAY_HOURS}>
@@ -557,95 +653,24 @@ export function SchedulePageClient({
                 <tbody className="divide-y divide-slate-100">
                   {days.map((day) => {
                     const workDate = formatWorkDate(year, month, day);
-                    const dow = getDayOfWeekTaipei(workDate);
-                    const isWeekend = dow === 0 || dow === 6;
-                    const sessionLabel = isDualClinicDay(dow)
-                      ? "雙診 7.67h"
-                      : "半日 3.67h";
-
-                    const isClosureDay = closureDateSet.has(workDate);
-                    const holidayName = holidayMap.get(workDate);
-
                     return (
-                      <tr
+                      <ScheduleDayRow
                         key={workDate}
-                        className={
-                          isClosureDay
-                            ? "bg-slate-200/70"
-                            : holidayName
-                              ? "bg-rose-50/50"
-                              : isWeekend
-                                ? "bg-slate-50/60"
-                                : "hover:bg-slate-50/40"
-                        }
-                      >
-                        <td className="sticky left-0 z-10 bg-inherit px-2 py-2 font-medium text-slate-800">
-                          <div className="flex flex-col gap-1">
-                            <span>
-                              {month}/{day}
-                              {isClosureDay && (
-                                <span className="ml-1 rounded bg-slate-600 px-1.5 py-0.5 text-[10px] text-white">
-                                  休診
-                                </span>
-                              )}
-                              {holidayName && !isClosureDay && (
-                                <span className="ml-1 rounded bg-rose-500 px-1.5 py-0.5 text-[10px] text-white">
-                                  國定
-                                </span>
-                              )}
-                            </span>
-                            {holidayName && (
-                              <span className="text-[10px] font-normal text-rose-600">
-                                {holidayName}
-                              </span>
-                            )}
-                            {!isPublished && (
-                              <div className="flex gap-1">
-                                <button
-                                  type="button"
-                                  onClick={() => handleRowClosure(workDate)}
-                                  disabled={isPending}
-                                  className="rounded border border-slate-400 px-1.5 py-0.5 text-[10px] text-slate-600 hover:bg-slate-100 disabled:opacity-50"
-                                  title="全天休診"
-                                >
-                                  休診
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => handleRowHalfDay(workDate)}
-                                  disabled={isPending}
-                                  className="rounded border border-blue-400 px-1.5 py-0.5 text-[10px] text-blue-600 hover:bg-blue-50 disabled:opacity-50"
-                                  title="只看早診，清除晚診"
-                                >
-                                  半日
-                                </button>
-                              </div>
-                            )}
-                          </div>
-                        </td>
-                        <td className="px-3 py-2 text-slate-500">{weekdayLabel(workDate)}</td>
-                        <td className="px-3 py-2 text-xs text-slate-400">{sessionLabel}</td>
-                        {allColumns.map((shift) => {
-                          const selected = assignmentMap[workDate]?.[shift.id] ?? "";
-                          return (
-                            <td key={shift.id} className="px-2 py-2">
-                              <select
-                                disabled={isPublished || isPending}
-                                value={selected}
-                                onChange={(e) => handleAssign(workDate, shift, e.target.value)}
-                                className="w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-sm outline-none focus:border-blue-400 disabled:bg-slate-100"
-                              >
-                                <option value="">—</option>
-                                {employees.map((emp) => (
-                                  <option key={emp.id} value={emp.id}>
-                                    {emp.name}
-                                  </option>
-                                ))}
-                              </select>
-                            </td>
-                          );
-                        })}
-                      </tr>
+                        workDate={workDate}
+                        month={month}
+                        day={day}
+                        dayAssignments={assignmentMap[workDate]}
+                        columns={allColumns}
+                        employeeOptions={employeeOptions}
+                        isPublished={isPublished}
+                        isClosureDay={closureDateSet.has(workDate)}
+                        holidayName={holidayMap.get(workDate)}
+                        pendingCell={pendingCell}
+                        rowBusy={isPending}
+                        onAssign={handleAssign}
+                        onClosure={handleRowClosure}
+                        onHalfDay={handleRowHalfDay}
+                      />
                     );
                   })}
                 </tbody>
@@ -658,6 +683,123 @@ export function SchedulePageClient({
   );
 }
 
+const ScheduleDayRow = memo(function ScheduleDayRow({
+  workDate,
+  month,
+  day,
+  dayAssignments,
+  columns,
+  employeeOptions,
+  isPublished,
+  isClosureDay,
+  holidayName,
+  pendingCell,
+  rowBusy,
+  onAssign,
+  onClosure,
+  onHalfDay,
+}: {
+  workDate: string;
+  month: number;
+  day: number;
+  dayAssignments: DayAssignmentMap[string] | undefined;
+  columns: ShiftType[];
+  employeeOptions: { id: string; label: string }[];
+  isPublished: boolean;
+  isClosureDay: boolean;
+  holidayName?: string;
+  pendingCell: string | null;
+  rowBusy: boolean;
+  onAssign: (workDate: string, shift: ShiftType, employeeId: string) => void;
+  onClosure: (workDate: string) => void;
+  onHalfDay: (workDate: string) => void;
+}) {
+  const dow = getDayOfWeekTaipei(workDate);
+  const isWeekend = dow === 0 || dow === 6;
+  const sessionLabel = isDualClinicDay(dow) ? "雙診 7.67h" : "半日 3.67h";
+
+  return (
+    <tr
+      className={
+        isClosureDay
+          ? "bg-slate-200/70"
+          : holidayName
+            ? "bg-rose-50/50"
+            : isWeekend
+              ? "bg-slate-50/60"
+              : "hover:bg-slate-50/40"
+      }
+    >
+      <td className="sticky left-0 z-10 bg-inherit px-2 py-2 font-medium text-slate-800">
+        <div className="flex flex-col gap-1">
+          <span>
+            {month}/{day}
+            {isClosureDay && (
+              <span className="ml-1 rounded bg-slate-600 px-1.5 py-0.5 text-[10px] text-white">
+                休診
+              </span>
+            )}
+            {holidayName && !isClosureDay && (
+              <span className="ml-1 rounded bg-rose-500 px-1.5 py-0.5 text-[10px] text-white">
+                國定
+              </span>
+            )}
+          </span>
+          {holidayName && (
+            <span className="text-[10px] font-normal text-rose-600">{holidayName}</span>
+          )}
+          {!isPublished && (
+            <div className="flex gap-1">
+              <button
+                type="button"
+                onClick={() => onClosure(workDate)}
+                disabled={rowBusy}
+                className="rounded border border-slate-400 px-1.5 py-0.5 text-[10px] text-slate-600 hover:bg-slate-100 disabled:opacity-50"
+                title="全天休診"
+              >
+                休診
+              </button>
+              <button
+                type="button"
+                onClick={() => onHalfDay(workDate)}
+                disabled={rowBusy}
+                className="rounded border border-blue-400 px-1.5 py-0.5 text-[10px] text-blue-600 hover:bg-blue-50 disabled:opacity-50"
+                title="只看早診，清除晚診"
+              >
+                半日
+              </button>
+            </div>
+          )}
+        </div>
+      </td>
+      <td className="px-3 py-2 text-slate-500">{weekdayLabel(workDate)}</td>
+      <td className="px-3 py-2 text-xs text-slate-400">{sessionLabel}</td>
+      {columns.map((shift) => {
+        const cellKey = `${workDate}:${shift.id}`;
+        const selected = dayAssignments?.[shift.id] ?? "";
+        const cellPending = pendingCell === cellKey;
+        return (
+          <td key={shift.id} className="px-2 py-2">
+            <select
+              disabled={isPublished || cellPending}
+              value={selected ?? ""}
+              onChange={(e) => onAssign(workDate, shift, e.target.value)}
+              className="w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-sm outline-none focus:border-blue-400 disabled:bg-slate-100"
+            >
+              <option value="">—</option>
+              {employeeOptions.map((emp) => (
+                <option key={emp.id} value={emp.id}>
+                  {emp.label}
+                </option>
+              ))}
+            </select>
+          </td>
+        );
+      })}
+    </tr>
+  );
+});
+
 function StatusBadge({ label, tone }: { label: string; tone: "green" | "amber" }) {
   const styles =
     tone === "green" ? "bg-green-100 text-green-700" : "bg-amber-100 text-amber-700";
@@ -667,4 +809,3 @@ function StatusBadge({ label, tone }: { label: string; tone: "green" | "amber" }
     </span>
   );
 }
-

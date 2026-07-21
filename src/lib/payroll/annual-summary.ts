@@ -1,11 +1,12 @@
 import { supabase } from "@/lib/supabase";
-import { sumNonRecurringBonus } from "@/lib/payroll/constants";
+import { sumTaxForm50NonRecurring } from "@/lib/payroll/constants";
 
 export interface AnnualEmployeeSummary {
   employeeId: string;
   employeeName: string;
   employeeNo: string;
   recurringGross: number;
+  /** 50 格式應稅非經常性合計（不含免稅加班／國定≤8h） */
   nonRecurringTotal: number;
   totalGross: number;
   flexibleBonus: number;
@@ -25,6 +26,9 @@ interface BreakdownRow {
   flexibleBonus?: number;
   quarterlyBonus?: number;
   yearEndBonus?: number;
+  annualLeavePayout?: number;
+  holidayOvertimePay?: number;
+  taxForm50NonRecurring?: number;
   recurringGross?: number;
   gross_pay?: number;
 }
@@ -66,6 +70,7 @@ export async function fetchAnnualPayrollSummary(
       quarterly: number;
       yearEnd: number;
       gross: number;
+      tax50: number;
     }
   >();
 
@@ -83,6 +88,7 @@ export async function fetchAnnualPayrollSummary(
         quarterly: 0,
         yearEnd: 0,
         gross: 0,
+        tax50: 0,
       });
     }
 
@@ -90,30 +96,39 @@ export async function fetchAnnualPayrollSummary(
     const flex = Number(bd.flexibleBonus ?? 0);
     const q = Number(bd.quarterlyBonus ?? 0);
     const ye = Number(bd.yearEndBonus ?? 0);
+    const annualLeave = Number(bd.annualLeavePayout ?? 0);
+    const holidayOt = Number(bd.holidayOvertimePay ?? 0);
+    const tax50 =
+      bd.taxForm50NonRecurring != null
+        ? Number(bd.taxForm50NonRecurring)
+        : sumTaxForm50NonRecurring({
+            flexibleBonus: flex,
+            quarterlyBonus: q,
+            yearEndBonus: ye,
+            annualLeavePayout: annualLeave,
+            holidayOvertimePay: holidayOt,
+          });
     const recurring = Number(bd.recurringGross ?? 0);
     const gross = Number(item.gross_pay ?? 0);
 
     row.flexible += flex;
     row.quarterly += q;
     row.yearEnd += ye;
-    row.recurring += recurring > 0 ? recurring : gross - flex - q - ye;
+    row.recurring += recurring > 0 ? recurring : Math.max(0, gross - tax50);
     row.gross += gross;
+    row.tax50 += tax50;
   }
 
   const employees: AnnualEmployeeSummary[] = [...byEmployee.entries()].map(
     ([employeeId, row]) => {
-      const nonRecurringTotal = sumNonRecurringBonus({
-        flexibleBonus: row.flexible,
-        quarterlyBonus: row.quarterly,
-        yearEndBonus: row.yearEnd,
-      });
+      const nonRecurringTotal = Math.round(row.tax50);
       return {
         employeeId,
         employeeName: row.name,
         employeeNo: row.no,
         recurringGross: Math.round(row.recurring),
         nonRecurringTotal,
-        totalGross: Math.round(row.gross),
+        totalGross: Math.round(row.recurring + nonRecurringTotal),
         flexibleBonus: row.flexible,
         quarterlyBonus: row.quarterly,
         yearEndBonus: row.yearEnd,

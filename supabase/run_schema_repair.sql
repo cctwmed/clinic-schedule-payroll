@@ -169,4 +169,18 @@ EXCEPTION
   WHEN duplicate_object THEN NULL;
 END $$;
 
+-- ---------- 020：生理假 enum ----------
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_enum e
+    JOIN pg_type t ON e.enumtypid = t.oid
+    WHERE t.typname = 'leave_record_type' AND e.enumlabel = 'menstrual'
+  ) THEN
+    ALTER TYPE leave_record_type ADD VALUE 'menstrual';
+  END IF;
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END $$;
+
 NOTIFY pgrst, 'reload schema';

@@ -6,7 +6,8 @@ export type LeaveRecordType =
   | "sick"
   | "personal"
   | "maternity"
-  | "pregnancy_rest";
+  | "pregnancy_rest"
+  | "menstrual";
 
 export type LeaveRecordStatus = "pending" | "approved" | "rejected";
 
@@ -97,6 +98,15 @@ export const LEAVE_TYPE_DEFINITIONS: Record<LeaveRecordType, LeaveTypeDefinition
     annualLimitHours: null,
     description:
       "安胎休養（依醫師證明）。狀態維持在職；勞健保／勞退持續提繳；薪資不給（扣全額時薪×時數）。",
+    keepActiveStatus: true,
+  },
+  menstrual: {
+    code: "menstrual",
+    label: "生理假",
+    payRatio: 1,
+    payLabel: "支全薪（不扣全勤）",
+    annualLimitHours: null,
+    description: "生理假為法定假別；不觸發全勤獎金扣除。",
     keepActiveStatus: true,
   },
 };

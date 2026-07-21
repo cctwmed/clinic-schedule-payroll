@@ -227,8 +227,8 @@ function checkTwoWeekStatutoryWindows(
     if (statutoryCount < MIN_STATUTORY_DAYS_PER_TWO_WEEKS) {
       issues.push({
         ruleCode: "STATUTORY_DAYS_TWO_WEEKS",
-        severity: "warning",
-        message: `${employeeName ?? "員工"} 固定兩週週期 ${start}～${end} 僅 ${statutoryCount} 天例假，需 ≥ ${MIN_STATUTORY_DAYS_PER_TWO_WEEKS} 天`,
+        severity: "violation",
+        message: `${employeeName ?? "員工"} 固定兩週週期 ${start}～${end} 僅 ${statutoryCount} 天例假（不可出勤），依法需 ≥ ${MIN_STATUTORY_DAYS_PER_TWO_WEEKS} 天`,
         employeeId,
         employeeName,
         date: start,

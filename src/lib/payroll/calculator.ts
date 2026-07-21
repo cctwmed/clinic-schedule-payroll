@@ -4,11 +4,12 @@ import {
   resolveHolidayDates,
   type HolidayDayPayDetail,
 } from "@/lib/payroll/holiday-attendance-pay";
-import { CLINIC_PAYROLL, sumNonRecurringBonus } from "@/lib/payroll/constants";
+import { CLINIC_PAYROLL, sumNonRecurringBonus, sumTaxForm50NonRecurring } from "@/lib/payroll/constants";
 import { calculateMonthlyOvertimePay } from "@/lib/payroll/overtime-pay";
 import { calculateYearEndBonus } from "@/lib/payroll/year-end-bonus";
 import { resolveEmployerInsurancePays } from "@/lib/payroll/insurance-brackets";
 import { calculateRestDayShortfall } from "@/lib/payroll/rest-day-shortfall";
+import { calculateFullAttendanceBonus } from "@/lib/payroll/full-attendance";
 import type { ClockEvent, DayOffRecord, WorkShiftBlock } from "@/lib/compliance/types";
 import type { LeavePayrollSummary } from "@/lib/payroll/leave-deductions";
 import type { EmployeeStatus } from "@/types/employee";
@@ -159,6 +160,14 @@ export function recalcPayrollTotals(item: PayrollLineItem): PayrollLineItem {
     annualLeavePayout: item.annualLeavePayout,
     specialAttendancePay: item.specialAttendancePay,
   });
+  /** 50 格式：加班與國定≤8h 加倍工資免稅，不列入 */
+  const taxForm50NonRecurring = sumTaxForm50NonRecurring({
+    flexibleBonus: item.flexibleBonus,
+    quarterlyBonus: item.quarterlyBonus,
+    yearEndBonus: item.yearEndBonus,
+    annualLeavePayout: item.annualLeavePayout,
+    holidayOvertimePay: item.holidayOvertimePay,
+  });
   const restDayOvertimePay = Math.max(0, Math.round(item.restDayOvertimePay ?? 0));
   const recurringGross = item.basePay + overtimePay + restDayOvertimePay;
   const grossPay = recurringGross + nonRecurringTotal;
@@ -219,7 +228,9 @@ export function recalcPayrollTotals(item: PayrollLineItem): PayrollLineItem {
       clinicBurdenTotal,
       totalToStatePerEmployee,
       insuranceBase: CLINIC_PAYROLL.INSURANCE_REPORT_BASE,
-      taxForm50NonRecurring: nonRecurringTotal,
+      taxForm50NonRecurring,
+      taxForm50Note:
+        "加班費（平日／休息日）與國定假日≤8h加倍工資免稅，不列入50格式；獎金／特休折現／國定延長加班另計",
     },
   };
 }
@@ -353,9 +364,28 @@ export function calculateEmployeePayroll(
   const otTier1 = Math.min(overtimeHours, 2);
   const otTier2 = Math.max(0, overtimeHours - 2);
 
+  const leavePay = bonusInput.leavePayroll ?? {
+    personalLeaveHours: 0,
+    personalLeaveDeduction: 0,
+    sickLeaveHours: 0,
+    sickLeaveDeduction: 0,
+    maternityLeaveHours: 0,
+    maternityLeaveDeduction: 0,
+    pregnancyRestHours: 0,
+    pregnancyRestDeduction: 0,
+    leaveDeductionTotal: 0,
+    fullPayLeaveHours: 0,
+    leaveDetails: [],
+  };
+
+  const attendance = calculateFullAttendanceBonus({
+    personalLeaveHours: leavePay.personalLeaveHours,
+    sickLeaveHours: leavePay.sickLeaveHours,
+  });
+
   const baseSalary = CLINIC_PAYROLL.MONTHLY_BASE_SALARY;
   const jobAllowance = CLINIC_PAYROLL.JOB_ALLOWANCE;
-  const fullAttendanceBonus = CLINIC_PAYROLL.FULL_ATTENDANCE_BONUS;
+  const fullAttendanceBonus = attendance.fullAttendanceBonus;
   const basePay = baseSalary + jobAllowance + fullAttendanceBonus;
   const overtimePay = calculateMonthlyOvertimePay(otTier1 + otTier2);
 
@@ -403,19 +433,7 @@ export function calculateEmployeePayroll(
   const healthInsuranceEmployerPay = round(resolvedEmployer.healthInsuranceEmployerPay);
   const laborPensionEmployerPay = round(resolvedEmployer.laborPensionEmployerPay);
 
-  const leavePay = bonusInput.leavePayroll ?? {
-    personalLeaveHours: 0,
-    personalLeaveDeduction: 0,
-    sickLeaveHours: 0,
-    sickLeaveDeduction: 0,
-    maternityLeaveHours: 0,
-    maternityLeaveDeduction: 0,
-    pregnancyRestHours: 0,
-    pregnancyRestDeduction: 0,
-    leaveDeductionTotal: 0,
-    fullPayLeaveHours: 0,
-    leaveDetails: [],
-  };
+  // leavePay 已於上方計算（全勤扣除用）
 
   const item: PayrollLineItem = {
     employeeId: employee.id,
@@ -499,11 +517,13 @@ export function calculateEmployeePayroll(
       yearEndFormula,
       annualLeavePayout,
       annualLeavePayoutDays,
-      salaryCategory: "國定假日出勤為非經常性薪資，不計勞健保基數",
+      salaryCategory: "國定假日≤8h加倍與加班費免稅不列50格式；獎金／特休折現列50格式參考",
       otRate1: CLINIC_PAYROLL.OT_RATE_WEEKDAY_1,
       otRate2: CLINIC_PAYROLL.OT_RATE_WEEKDAY_2,
       laborMode: "四週變形工時（黃金班表）",
       insuranceBase: CLINIC_PAYROLL.INSURANCE_REPORT_BASE,
+      fullAttendanceNote: attendance.note,
+      fullAttendanceDeducted: attendance.deductedAmount,
       personalLeaveHours: leavePay.personalLeaveHours,
       personalLeaveDeduction: leavePay.personalLeaveDeduction,
       sickLeaveHours: leavePay.sickLeaveHours,

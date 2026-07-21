@@ -19,6 +19,7 @@ import {
   getQuarterLabel,
 } from "@/lib/payroll/constants";
 import { fetchAnnualPayrollSummary, type AnnualPayrollSummary } from "@/lib/payroll/annual-summary";
+import { buildInsuranceBracketWarnings, type InsuranceBracketWarning } from "@/lib/payroll/insurance-bracket-warnings";
 import { countPendingEarlyAbnormal } from "@/lib/clock/early-punch-review";
 import { findLeavePayoutsDue, markLeaveRecordSettled } from "@/lib/leave/service";
 import { fetchApprovedLeavesForPeriod } from "@/lib/leave/leave-records-service";
@@ -191,6 +192,20 @@ export async function fetchPayrollPageData(year: number, month: number) {
     () => 0
   );
 
+  const insuranceBracketWarnings = await loadInsuranceBracketWarnings(
+    clinic.id,
+    year,
+    month,
+    (employees ?? []).map((e) => ({
+      id: e.id,
+      name: e.name,
+      laborInsuranceSelfPay: Number(e.labor_insurance_self_pay),
+      healthInsuranceSelfPay: Number(e.health_insurance_self_pay),
+      laborInsuranceEmployerPay: Number(e.labor_insurance_employer_pay ?? 0),
+    })),
+    lineItems
+  );
+
   return {
     clinic,
     year,
@@ -207,7 +222,73 @@ export async function fetchPayrollPageData(year: number, month: number) {
     annualSummary,
     leavePayoutsDue: leavePayouts,
     pendingEarlyPunchReview,
+    insuranceBracketWarnings,
   };
+}
+
+async function loadInsuranceBracketWarnings(
+  clinicId: string,
+  year: number,
+  month: number,
+  employees: {
+    id: string;
+    name: string;
+    laborInsuranceSelfPay: number;
+    healthInsuranceSelfPay: number;
+    laborInsuranceEmployerPay: number;
+  }[],
+  currentLineItems: PayrollLineItem[]
+): Promise<InsuranceBracketWarning[]> {
+  const grossByMonthEmployee = new Map<string, number>();
+
+  for (const item of currentLineItems) {
+    if (item.parentalLeaveSuspend) continue;
+    grossByMonthEmployee.set(`${year}-${month}-${item.employeeId}`, item.grossPay);
+  }
+
+  // 前兩個月已結算應發
+  const monthsNeeded: { year: number; month: number }[] = [];
+  let y = year;
+  let m = month;
+  for (let i = 0; i < 2; i++) {
+    if (m <= 1) {
+      y -= 1;
+      m = 12;
+    } else {
+      m -= 1;
+    }
+    monthsNeeded.push({ year: y, month: m });
+  }
+
+  for (const ym of monthsNeeded) {
+    const { data: run } = await supabase
+      .from("payroll_runs")
+      .select("id")
+      .eq("clinic_id", clinicId)
+      .eq("year", ym.year)
+      .eq("month", ym.month)
+      .maybeSingle();
+    if (!run?.id) continue;
+
+    const { data: items } = await supabase
+      .from("payroll_items")
+      .select("employee_id, gross_pay")
+      .eq("payroll_run_id", run.id);
+
+    for (const row of items ?? []) {
+      grossByMonthEmployee.set(
+        `${ym.year}-${ym.month}-${row.employee_id}`,
+        Number(row.gross_pay) || 0
+      );
+    }
+  }
+
+  return buildInsuranceBracketWarnings({
+    year,
+    month,
+    employees,
+    grossByMonthEmployee,
+  });
 }
 
 export async function savePayrollRun(

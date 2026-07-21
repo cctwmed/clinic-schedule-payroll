@@ -356,11 +356,13 @@ export function LeavePageClient({
                           ? leavePayLabel(r.leave_type)
                           : r.leave_type === "pregnancy_rest"
                             ? "不給薪（在職／勞健保持續）"
+                            : r.leave_type === "menstrual"
+                              ? "全薪（不扣全勤）"
                             : LEAVE_TYPE_DEFINITIONS[r.leave_type].payRatio === 1
-                              ? "全薪"
+                              ? "全薪（不扣全勤）"
                               : r.leave_type === "sick"
-                                ? "半薪扣款"
-                                : "不給薪扣款"}
+                                ? "半薪扣款（可扣全勤）"
+                                : "不給薪扣款（可扣全勤）"}
                       </td>
                       <td className="px-4 py-3">{STATUS_LABELS[r.status]}</td>
                     </tr>
