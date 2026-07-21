@@ -594,6 +594,50 @@ export async function markClinicClosureDay(
   return { success: true as const, mode: effectiveMode };
 }
 
+/**
+ * 刪除班表下所有排班前，先解除打卡／警示／換班對 assignment 的外鍵，
+ * 避免 clock_records_assignment_id_fkey 擋住「一鍵產生黃金班表」。
+ * 打卡紀錄本體不刪，僅清空 assignment_id。
+ */
+async function clearScheduleAssignments(scheduleId: string): Promise<string | null> {
+  const { data: existing, error: listError } = await supabase
+    .from("shift_assignments")
+    .select("id")
+    .eq("schedule_id", scheduleId);
+
+  if (listError) return listError.message;
+
+  const ids = (existing ?? []).map((a) => a.id);
+  if (ids.length === 0) return null;
+
+  const { error: clockErr } = await supabase
+    .from("clock_records")
+    .update({ assignment_id: null })
+    .in("assignment_id", ids);
+  if (clockErr) return clockErr.message;
+
+  await supabase
+    .from("compliance_alerts")
+    .update({ assignment_id: null })
+    .in("assignment_id", ids);
+
+  await supabase.from("shift_swap_requests").delete().in("original_assignment_id", ids);
+  await supabase.from("shift_swap_requests").delete().in("proposed_assignment_id", ids);
+
+  // 015：ON DELETE SET NULL，仍先清較穩妥
+  await supabase
+    .from("clock_correction_requests")
+    .update({ assignment_id: null })
+    .in("assignment_id", ids);
+
+  const { error: deleteError } = await supabase
+    .from("shift_assignments")
+    .delete()
+    .eq("schedule_id", scheduleId);
+
+  return deleteError?.message ?? null;
+}
+
 export async function generateGoldenSchedule(
   scheduleId: string,
   config: GoldenScheduleConfig
@@ -638,12 +682,13 @@ export async function generateGoldenSchedule(
     shiftTypes ?? []
   );
 
-  const { error: deleteError } = await supabase
-    .from("shift_assignments")
-    .delete()
-    .eq("schedule_id", scheduleId);
-
-  if (deleteError) return { success: false as const, error: deleteError.message };
+  const clearError = await clearScheduleAssignments(scheduleId);
+  if (clearError) {
+    return {
+      success: false as const,
+      error: `無法覆蓋舊班表：${clearError}（打卡紀錄已保留，僅解除與舊班次的連結後再重試）`,
+    };
+  }
 
   const rows = generated.flatMap((g) => {
     const shiftTypeId = codeToId[g.shiftCode];
