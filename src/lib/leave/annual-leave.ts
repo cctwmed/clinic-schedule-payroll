@@ -11,6 +11,16 @@ export function getEntitledDaysForAnniversaryYear(completedYears: number): numbe
   return Math.min(30, 15 + (completedYears - 9));
 }
 
+/** 勞基法第 38 條特休天數一覽（畫面說明用） */
+export const ANNUAL_LEAVE_ENTITLEMENT_ROWS: { label: string; days: number }[] = [
+  { label: "六個月以上一年未滿", days: 3 },
+  { label: "一年以上二年未滿", days: 7 },
+  { label: "二年以上三年未滿", days: 10 },
+  { label: "三年以上五年未滿", days: 14 },
+  { label: "五年以上十年未滿", days: 15 },
+  { label: "十年以上（每年加給一日，加至三十日）", days: 16 },
+];
+
 function formatTaipeiDate(date: Date): string {
   return new Intl.DateTimeFormat("en-CA", {
     timeZone: "Asia/Taipei",

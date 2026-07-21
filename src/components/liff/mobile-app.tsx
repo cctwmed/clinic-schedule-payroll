@@ -27,6 +27,10 @@ const ForgotClockTab = dynamic(
   () => import("@/components/liff/tabs/forgot-clock-tab").then((m) => m.ForgotClockTab),
   { loading: () => <TabLoading label="忘記打卡" /> }
 );
+const OvertimeTab = dynamic(
+  () => import("@/components/liff/tabs/overtime-tab").then((m) => m.OvertimeTab),
+  { loading: () => <TabLoading label="我要加班" /> }
+);
 
 function TabLoading({ label }: { label: string }) {
   return (
@@ -64,6 +68,7 @@ const SUB_PAGE_TITLES: Partial<Record<MobileTab, string>> = {
   leave: "我要請假",
   records: "出勤紀錄",
   forgot: "忘記打卡",
+  overtime: "我要加班",
 };
 
 function readInitialTab(): MobileTab {
@@ -76,6 +81,7 @@ function readInitialTab(): MobileTab {
     "leave",
     "records",
     "forgot",
+    "overtime",
   ];
   if (tab && allowed.includes(tab as MobileTab)) return tab as MobileTab;
   return "clock";
@@ -274,6 +280,8 @@ export function MobileApp({ liffId, appUrl }: MobileAppProps) {
           return <RecordsTab lineUserId={lineUserId} onGoBind={goBind} onBack={goHome} />;
         case "forgot":
           return <ForgotClockTab lineUserId={lineUserId} onGoBind={goBind} onBack={goHome} />;
+        case "overtime":
+          return <OvertimeTab lineUserId={lineUserId} onGoBind={goBind} onBack={goHome} />;
         default:
           return null;
       }

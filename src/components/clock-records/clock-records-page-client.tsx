@@ -7,10 +7,13 @@ import {
   correctClockRecord,
   reviewEarlyPunch,
   reviewForgotClockRequest,
+  reviewOvertimeRequestAction,
 } from "@/app/(dashboard)/clock-records/actions";
 import type { CorrectionRequestRow } from "@/lib/clock/correction-request";
+import type { OvertimeRequestRow } from "@/lib/clock/overtime-request";
 import type { ClockRecordRow } from "@/types/clock-records";
 import { EARLY_PUNCH_BUFFER_MINUTES } from "@/lib/clock/early-punch";
+import { formatDurationZh } from "@/lib/time-24";
 
 import { monthRangeFromDate } from "@/lib/clock/export-report";
 
@@ -20,6 +23,7 @@ interface ClockRecordsPageClientProps {
   records: ClockRecordRow[];
   pendingEarlyReview?: number;
   pendingCorrections?: CorrectionRequestRow[];
+  pendingOvertime?: OvertimeRequestRow[];
   employees?: { id: string; name: string; employee_no: string }[];
 }
 
@@ -36,6 +40,7 @@ export function ClockRecordsPageClient({
   records,
   pendingEarlyReview = 0,
   pendingCorrections = [],
+  pendingOvertime = [],
   employees = [],
 }: ClockRecordsPageClientProps) {
   const router = useRouter();
@@ -151,6 +156,77 @@ export function ClockRecordsPageClient({
                       className="rounded-md px-2 py-1 font-medium text-emerald-700 hover:bg-emerald-50"
                     >
                       核准補登
+                    </button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {pendingOvertime.length > 0 && (
+          <div className="rounded-xl border border-violet-200 bg-violet-50 px-4 py-3 text-sm text-violet-950">
+            <p className="font-semibold">
+              有 {pendingOvertime.length} 筆「加班申請」待審核
+            </p>
+            <p className="mt-1 text-xs text-violet-800">
+              核准後請於薪資頁核對／填入當月加班時數（系統已記錄時數供對帳）。
+            </p>
+            <ul className="mt-3 space-y-2">
+              {pendingOvertime.map((req) => (
+                <li
+                  key={req.id}
+                  className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-violet-100 bg-white px-3 py-2 text-xs"
+                >
+                  <div>
+                    <p className="font-medium text-slate-900">
+                      {req.employee_name} · {req.work_date} · {req.start_time}–
+                      {req.end_time}（{formatDurationZh(req.duration_minutes)}）
+                    </p>
+                    {req.reason && (
+                      <p className="mt-0.5 text-slate-500">原因：{req.reason}</p>
+                    )}
+                  </div>
+                  <div className="flex gap-1">
+                    <button
+                      type="button"
+                      disabled={isPending}
+                      onClick={() => {
+                        startTransition(async () => {
+                          const result = await reviewOvertimeRequestAction({
+                            requestId: req.id,
+                            approved: false,
+                          });
+                          setMessage(
+                            result.success ? "已駁回加班申請" : result.error ?? "操作失敗"
+                          );
+                          if (result.success) router.refresh();
+                        });
+                      }}
+                      className="rounded-md px-2 py-1 text-slate-600 hover:bg-slate-100"
+                    >
+                      駁回
+                    </button>
+                    <button
+                      type="button"
+                      disabled={isPending}
+                      onClick={() => {
+                        startTransition(async () => {
+                          const result = await reviewOvertimeRequestAction({
+                            requestId: req.id,
+                            approved: true,
+                          });
+                          setMessage(
+                            result.success
+                              ? `已核准加班（${formatDurationZh(req.duration_minutes)}）`
+                              : result.error ?? "操作失敗"
+                          );
+                          if (result.success) router.refresh();
+                        });
+                      }}
+                      className="rounded-md px-2 py-1 font-medium text-violet-700 hover:bg-violet-50"
+                    >
+                      核准加班
                     </button>
                   </div>
                 </li>

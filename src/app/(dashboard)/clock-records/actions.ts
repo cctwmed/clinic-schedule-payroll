@@ -10,6 +10,11 @@ import {
   reviewCorrectionRequest,
   type CorrectionRequestRow,
 } from "@/lib/clock/correction-request";
+import {
+  listPendingOvertimeRequests,
+  reviewOvertimeRequest,
+  type OvertimeRequestRow,
+} from "@/lib/clock/overtime-request";
 import type { ClockType } from "@/lib/clock/session";
 import type { ClockRecordRow } from "@/types/clock-records";
 import type { ClockExportRow } from "@/lib/clock/export-report";
@@ -150,6 +155,9 @@ export async function fetchClockRecordsPageData(date?: string) {
   const pendingCorrections = await fetchPendingCorrectionRequests(clinic.id).catch(
     () => [] as CorrectionRequestRow[]
   );
+  const pendingOvertime = await listPendingOvertimeRequests(clinic.id).catch(
+    () => [] as OvertimeRequestRow[]
+  );
 
   const { data: employees } = await supabase
     .from("employees")
@@ -164,6 +172,7 @@ export async function fetchClockRecordsPageData(date?: string) {
     records: rows,
     pendingEarlyReview,
     pendingCorrections,
+    pendingOvertime,
     employees: employees ?? [],
   };
 }
@@ -229,6 +238,24 @@ export async function reviewForgotClockRequest(input: {
     return { success: false as const, error: result.error };
   }
 
+  revalidatePath("/clock-records");
+  revalidatePath("/payroll");
+  return { success: true as const };
+}
+
+export async function reviewOvertimeRequestAction(input: {
+  requestId: string;
+  approved: boolean;
+  reviewNote?: string;
+}) {
+  const result = await reviewOvertimeRequest(
+    input.requestId,
+    input.approved ? "approved" : "rejected",
+    input.reviewNote
+  );
+  if (!result.success) {
+    return { success: false as const, error: result.error };
+  }
   revalidatePath("/clock-records");
   revalidatePath("/payroll");
   return { success: true as const };

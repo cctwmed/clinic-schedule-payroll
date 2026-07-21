@@ -41,7 +41,8 @@ export const LEAVE_TYPE_DEFINITIONS: Record<LeaveRecordType, LeaveTypeDefinition
     payRatio: 1,
     payLabel: "支全薪",
     annualLimitHours: null,
-    description: "依週年制特休天數控管",
+    description:
+      "勞基法第 38 條：滿 6 個月 3 日；滿 1 年 7 日；滿 2 年 10 日；滿 3–5 年每年 14 日；滿 5–10 年每年 15 日；滿 10 年起每年加 1 日至多 30 日",
     keepActiveStatus: true,
   },
   marriage: {

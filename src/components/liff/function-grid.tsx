@@ -18,9 +18,9 @@ import {
   Wallet,
 } from "lucide-react";
 import type { LiffMode } from "@/components/liff/mode-switcher";
+import type { MobileTab } from "@/components/liff/bottom-nav";
 
-export type MobileTab = "clock" | "schedule" | "payslip" | "leave" | "records" | "forgot";
-
+export type { MobileTab };
 export type GridAction =
   | { type: "tab"; tab: MobileTab }
   | { type: "clock" }
@@ -67,7 +67,7 @@ const EMPLOYEE_ITEMS: GridItem[] = [
     id: "overtime",
     label: "我要加班",
     icon: Timer,
-    action: { type: "tab", tab: "forgot" },
+    action: { type: "tab", tab: "overtime" },
     bgClass: "bg-violet-50",
     iconClass: "text-violet-600",
   },

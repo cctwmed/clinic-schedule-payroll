@@ -1,6 +1,13 @@
 "use client";
 
-export type MobileTab = "clock" | "schedule" | "payslip" | "leave" | "records" | "forgot";
+export type MobileTab =
+  | "clock"
+  | "schedule"
+  | "payslip"
+  | "leave"
+  | "records"
+  | "forgot"
+  | "overtime";
 
 const TABS: { id: MobileTab; label: string; icon: string }[] = [
   { id: "clock", label: "首頁", icon: "🏠" },
