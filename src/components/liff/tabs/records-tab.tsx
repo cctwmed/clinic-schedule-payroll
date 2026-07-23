@@ -5,7 +5,6 @@ import { useEffect, useState } from "react";
 interface RecordsTabProps {
   lineUserId: string;
   onGoBind?: () => void;
-  onBack?: () => void;
 }
 
 interface RecordRow {
@@ -18,7 +17,7 @@ interface RecordRow {
   isManuallyCorrected: boolean;
 }
 
-export function RecordsTab({ lineUserId, onGoBind, onBack }: RecordsTabProps) {
+export function RecordsTab({ lineUserId, onGoBind }: RecordsTabProps) {
   const [records, setRecords] = useState<RecordRow[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [needsBind, setNeedsBind] = useState(false);
@@ -44,16 +43,6 @@ export function RecordsTab({ lineUserId, onGoBind, onBack }: RecordsTabProps) {
 
   return (
     <div className="px-4 pt-4">
-      <header className="mb-4 flex items-center gap-2">
-        {onBack && (
-          <button type="button" onClick={onBack} className="text-sm text-blue-600">
-            ← 返回
-          </button>
-        )}
-        <h1 className="flex-1 text-center text-lg font-bold">出勤紀錄</h1>
-        <span className="w-10" />
-      </header>
-
       {error && (
         <div className="mb-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
           {error}

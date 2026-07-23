@@ -7,7 +7,6 @@ import { Time24Input } from "@/components/liff/time-24-input";
 interface ForgotClockTabProps {
   lineUserId: string;
   onGoBind?: () => void;
-  onBack?: () => void;
 }
 
 interface DaySession {
@@ -24,7 +23,7 @@ const CLOCK_TYPES = [
   { value: "clock_out" as const, label: "下班打卡" },
 ];
 
-export function ForgotClockTab({ lineUserId, onGoBind, onBack }: ForgotClockTabProps) {
+export function ForgotClockTab({ lineUserId, onGoBind }: ForgotClockTabProps) {
   const [workDate, setWorkDate] = useState(new Date().toISOString().slice(0, 10));
   const [sessions, setSessions] = useState<DaySession[]>([]);
   const [assignmentId, setAssignmentId] = useState("");
@@ -112,16 +111,6 @@ export function ForgotClockTab({ lineUserId, onGoBind, onBack }: ForgotClockTabP
 
   return (
     <div className="px-4 pt-4">
-      <header className="mb-4 flex items-center gap-2">
-        {onBack && (
-          <button type="button" onClick={onBack} className="text-sm text-blue-600">
-            ← 返回
-          </button>
-        )}
-        <h1 className="flex-1 text-center text-lg font-bold">忘記打卡</h1>
-        <span className="w-10" />
-      </header>
-
       {needsBind ? (
         <div className="rounded-2xl border border-amber-200 bg-white p-5 text-center shadow-sm">
           <p className="text-sm font-medium text-amber-900">請先完成身份綁定</p>

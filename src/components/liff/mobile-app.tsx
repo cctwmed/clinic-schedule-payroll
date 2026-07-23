@@ -51,6 +51,7 @@ declare global {
       closeWindow: () => void;
       isInClient: () => boolean;
       getOS: () => string;
+      openWindow?: (config: { url: string; external?: boolean }) => void;
     };
   }
 }
@@ -275,13 +276,13 @@ export function MobileApp({ liffId, appUrl }: MobileAppProps) {
         case "payslip":
           return <PayslipTab lineUserId={lineUserId} onGoBind={goBind} />;
         case "leave":
-          return <LeaveTab lineUserId={lineUserId} onGoBind={goBind} onBack={goHome} />;
+          return <LeaveTab lineUserId={lineUserId} onGoBind={goBind} />;
         case "records":
-          return <RecordsTab lineUserId={lineUserId} onGoBind={goBind} onBack={goHome} />;
+          return <RecordsTab lineUserId={lineUserId} onGoBind={goBind} />;
         case "forgot":
-          return <ForgotClockTab lineUserId={lineUserId} onGoBind={goBind} onBack={goHome} />;
+          return <ForgotClockTab lineUserId={lineUserId} onGoBind={goBind} />;
         case "overtime":
-          return <OvertimeTab lineUserId={lineUserId} onGoBind={goBind} onBack={goHome} />;
+          return <OvertimeTab lineUserId={lineUserId} onGoBind={goBind} />;
         default:
           return null;
       }

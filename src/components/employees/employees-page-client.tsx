@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo, useRouter, useState } from "react";
+import { useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { DashboardHeader } from "@/components/layout/sidebar";
 import { EmployeeModal } from "@/components/employees/employee-modal";
 import type { Employee, EmployeeStatus } from "@/types/employee";

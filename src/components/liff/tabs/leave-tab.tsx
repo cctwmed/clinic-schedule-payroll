@@ -10,7 +10,6 @@ import {
 interface LeaveTabProps {
   lineUserId: string;
   onGoBind?: () => void;
-  onBack?: () => void;
 }
 
 interface LeaveSummary {
@@ -24,7 +23,7 @@ interface LeaveSummary {
   pendingCount: number;
 }
 
-export function LeaveTab({ lineUserId, onGoBind, onBack }: LeaveTabProps) {
+export function LeaveTab({ lineUserId, onGoBind }: LeaveTabProps) {
   const [summary, setSummary] = useState<LeaveSummary | null>(null);
   const [startDate, setStartDate] = useState(new Date().toISOString().slice(0, 10));
   const [endDate, setEndDate] = useState(new Date().toISOString().slice(0, 10));
@@ -100,16 +99,6 @@ export function LeaveTab({ lineUserId, onGoBind, onBack }: LeaveTabProps) {
 
   return (
     <div className="px-4 pt-4">
-      <header className="mb-4 flex items-center gap-2">
-        {onBack && (
-          <button type="button" onClick={onBack} className="text-sm text-blue-600">
-            ← 返回
-          </button>
-        )}
-        <h1 className="flex-1 text-center text-lg font-bold">我要請假</h1>
-        <span className="w-10" />
-      </header>
-
       {error && (
         <div className="mb-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
           {error}

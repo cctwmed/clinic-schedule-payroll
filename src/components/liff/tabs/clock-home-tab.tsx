@@ -49,6 +49,22 @@ interface ClockHomeTabProps {
   onNavigate?: (tab: MobileTab) => void;
 }
 
+/**
+ * 在 LINE 內建瀏覽器裡 window.open("_blank") 常被忽略，導致管理員功能「點了沒反應」。
+ * 優先用 LIFF 的 openWindow 開外部瀏覽器（後台需另外登入，外部瀏覽器體驗較穩），
+ * 非 LINE 環境則退回一般開新分頁 / 同頁導向。
+ */
+function openManagementPage(url: string) {
+  if (typeof window === "undefined") return;
+  const liff = window.liff;
+  if (liff && typeof liff.openWindow === "function") {
+    liff.openWindow({ url, external: true });
+    return;
+  }
+  const opened = window.open(url, "_blank", "noopener,noreferrer");
+  if (!opened) window.location.href = url;
+}
+
 function formatTaipeiDate(dateStr: string): string {
   const d = new Date(`${dateStr}T12:00:00+08:00`);
   return d.toLocaleDateString("zh-TW", {
@@ -253,7 +269,7 @@ export function ClockHomeTab({
       return;
     }
     if (action.type === "admin") {
-      window.open(action.href, "_blank", "noopener,noreferrer");
+      openManagementPage(action.href);
       return;
     }
     if (action.type === "settings") {

@@ -15,7 +15,7 @@ export function minutesBetweenHhMm(start: string, end: string): number {
   const b = normalizeHhMm(end);
   const [sh, sm] = a.split(":").map(Number);
   const [eh, em] = b.split(":").map(Number);
-  let startM = sh * 60 + sm;
+  const startM = sh * 60 + sm;
   let endM = eh * 60 + em;
   if (endM <= startM) endM += 24 * 60;
   return endM - startM;

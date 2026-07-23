@@ -10,10 +10,9 @@ import {
 interface OvertimeTabProps {
   lineUserId: string;
   onGoBind?: () => void;
-  onBack?: () => void;
 }
 
-export function OvertimeTab({ lineUserId, onGoBind, onBack }: OvertimeTabProps) {
+export function OvertimeTab({ lineUserId, onGoBind }: OvertimeTabProps) {
   const [workDate, setWorkDate] = useState(new Date().toISOString().slice(0, 10));
   const [startTime, setStartTime] = useState("20:00");
   const [endTime, setEndTime] = useState("22:00");
@@ -79,16 +78,6 @@ export function OvertimeTab({ lineUserId, onGoBind, onBack }: OvertimeTabProps) 
 
   return (
     <div className="px-4 pt-4">
-      <header className="mb-4 flex items-center gap-2">
-        {onBack && (
-          <button type="button" onClick={onBack} className="text-sm text-blue-600">
-            ← 返回
-          </button>
-        )}
-        <h1 className="flex-1 text-center text-lg font-bold">我要加班</h1>
-        <span className="w-10" />
-      </header>
-
       {needsBind ? (
         <div className="rounded-2xl border border-amber-200 bg-white p-5 text-center shadow-sm">
           <p className="text-sm font-medium text-amber-900">請先完成身份綁定</p>
