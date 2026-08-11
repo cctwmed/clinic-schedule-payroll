@@ -1,8 +1,12 @@
 import { LegalWarningBanner } from "@/components/compliance/legal-warning-banner";
 import { PayrollPageClient } from "@/components/payroll/payroll-page-client";
+import { withTimeout } from "@/lib/async/with-timeout";
 import { fetchPayrollPageData } from "./actions";
 
 export const dynamic = "force-dynamic";
+
+// 薪資結算需查詢多張資料表，給較寬鬆的逾時；超過即顯示錯誤而非無限轉圈。
+const PAYROLL_TIMEOUT_MS = 20000;
 
 interface PageProps {
   searchParams: Promise<{ year?: string; month?: string }>;
@@ -15,7 +19,11 @@ export default async function PayrollPage({ searchParams }: PageProps) {
   const month = params.month ? Number(params.month) : now.getMonth() + 1;
 
   try {
-    const data = await fetchPayrollPageData(year, month);
+    const data = await withTimeout(
+      fetchPayrollPageData(year, month),
+      PAYROLL_TIMEOUT_MS,
+      "薪資資料載入"
+    );
     return (
       <>
         <LegalWarningBanner />

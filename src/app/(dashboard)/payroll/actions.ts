@@ -18,7 +18,7 @@ import {
   isYearEndBonusMonth,
   getQuarterLabel,
 } from "@/lib/payroll/constants";
-import { fetchAnnualPayrollSummary, type AnnualPayrollSummary } from "@/lib/payroll/annual-summary";
+import { fetchAnnualPayrollSummary } from "@/lib/payroll/annual-summary";
 import { buildInsuranceBracketWarnings, type InsuranceBracketWarning } from "@/lib/payroll/insurance-bracket-warnings";
 import { countPendingEarlyAbnormal } from "@/lib/clock/early-punch-review";
 import { findLeavePayoutsDue, markLeaveRecordSettled } from "@/lib/leave/service";
@@ -46,24 +46,67 @@ export async function fetchPayrollPageData(year: number, month: number) {
   const { start, end } = monthPeriod(year, month);
   const compPeriod = compliancePeriod(year, month);
 
-  const { data: employees, error: empError } = await supabase
-    .from("employees")
-    .select(
-      "id, name, employee_no, hire_date, resign_date, status, hourly_wage, labor_insurance_self_pay, health_insurance_self_pay, labor_insurance_employer_pay, health_insurance_employer_pay, labor_pension_employer_pay"
-    )
-    .eq("clinic_id", clinic.id)
-    .in("status", ["active", "inactive"])
-    .order("employee_no");
+  const includeFlexible = isFlexibleBonusMonth(month);
+  const includeQuarterly = isQuarterlyBonusMonth(month);
+  const includeYearEnd = isYearEndBonusMonth(month);
 
+  // 以下查詢彼此獨立，並行執行以大幅縮短薪資頁載入時間。
+  const [
+    employeesResult,
+    scheduleResult,
+    complianceData,
+    existingRunResult,
+    leavePayouts,
+    approvedLeaves,
+    dbAlertsResult,
+    pendingEarlyPunchReview,
+    annualSummary,
+  ] = await Promise.all([
+    supabase
+      .from("employees")
+      .select(
+        "id, name, employee_no, hire_date, resign_date, status, hourly_wage, labor_insurance_self_pay, health_insurance_self_pay, labor_insurance_employer_pay, health_insurance_employer_pay, labor_pension_employer_pay"
+      )
+      .eq("clinic_id", clinic.id)
+      .in("status", ["active", "inactive"])
+      .order("employee_no"),
+    supabase
+      .from("schedules")
+      .select("note")
+      .eq("clinic_id", clinic.id)
+      .eq("year", year)
+      .eq("month", month)
+      .maybeSingle(),
+    loadComplianceData(clinic.id, compPeriod.start, compPeriod.end),
+    supabase
+      .from("payroll_runs")
+      .select("id, status, calculated_at")
+      .eq("clinic_id", clinic.id)
+      .eq("year", year)
+      .eq("month", month)
+      .maybeSingle(),
+    findLeavePayoutsDue(clinic.id, year, month),
+    fetchApprovedLeavesForPeriod(clinic.id, start, end).catch(() => []),
+    supabase
+      .from("compliance_alerts")
+      .select("id, employee_id, alert_date, rule_code, message, severity, status")
+      .eq("clinic_id", clinic.id)
+      .gte("alert_date", start)
+      .lte("alert_date", end)
+      .order("alert_date", { ascending: false })
+      .limit(20),
+    countPendingEarlyAbnormal(clinic.id).catch(() => 0),
+    includeYearEnd
+      ? fetchAnnualPayrollSummary(clinic.id, year)
+      : Promise.resolve(null),
+  ]);
+
+  const { data: employees, error: empError } = employeesResult;
   if (empError) throw new Error(empError.message);
 
-  const { data: schedule } = await supabase
-    .from("schedules")
-    .select("note")
-    .eq("clinic_id", clinic.id)
-    .eq("year", year)
-    .eq("month", month)
-    .maybeSingle();
+  const schedule = scheduleResult.data;
+  const existingRun = existingRunResult.data;
+  const dbAlerts = dbAlertsResult.data ?? [];
 
   const goldenConfig = parseGoldenConfig(schedule?.note ?? null);
   const scheduleMeta = parseScheduleMeta(schedule?.note ?? null);
@@ -77,7 +120,6 @@ export async function fetchPayrollPageData(year: number, month: number) {
     voluntaryClosureDates(scheduleMeta.closures ?? [])
   );
 
-  const complianceData = await loadComplianceData(clinic.id, compPeriod.start, compPeriod.end);
   const complianceIssues = checkCompliance({
     periodStart: compPeriod.start,
     periodEnd: compPeriod.end,
@@ -93,14 +135,6 @@ export async function fetchPayrollPageData(year: number, month: number) {
     complianceIssueOverlapsRange(i, start, end)
   );
 
-  const { data: existingRun } = await supabase
-    .from("payroll_runs")
-    .select("id, status, calculated_at")
-    .eq("clinic_id", clinic.id)
-    .eq("year", year)
-    .eq("month", month)
-    .maybeSingle();
-
   const savedBonuses = new Map<string, SavedBonusBreakdown>();
   if (existingRun?.id) {
     const { data: savedItems } = await supabase
@@ -114,16 +148,7 @@ export async function fetchPayrollPageData(year: number, month: number) {
     }
   }
 
-  const includeFlexible = isFlexibleBonusMonth(month);
-  const includeQuarterly = isQuarterlyBonusMonth(month);
-  const includeYearEnd = isYearEndBonusMonth(month);
-
-  const leavePayouts = await findLeavePayoutsDue(clinic.id, year, month);
   const payoutByEmployee = new Map(leavePayouts.map((p) => [p.employeeId, p]));
-
-  const approvedLeaves = await fetchApprovedLeavesForPeriod(clinic.id, start, end).catch(
-    () => []
-  );
 
   const lineItems: PayrollLineItem[] = (employees ?? []).map((emp) => {
     const saved = savedBonuses.get(emp.id);
@@ -175,24 +200,6 @@ export async function fetchPayrollPageData(year: number, month: number) {
       complianceData.dayOffs
     );
   });
-
-  const { data: dbAlerts } = await supabase
-    .from("compliance_alerts")
-    .select("id, employee_id, alert_date, rule_code, message, severity, status")
-    .eq("clinic_id", clinic.id)
-    .gte("alert_date", start)
-    .lte("alert_date", end)
-    .order("alert_date", { ascending: false })
-    .limit(20);
-
-  let annualSummary: AnnualPayrollSummary | null = null;
-  if (isYearEndBonusMonth(month)) {
-    annualSummary = await fetchAnnualPayrollSummary(clinic.id, year);
-  }
-
-  const pendingEarlyPunchReview = await countPendingEarlyAbnormal(clinic.id).catch(
-    () => 0
-  );
 
   const insuranceBracketWarnings = await loadInsuranceBracketWarnings(
     clinic.id,

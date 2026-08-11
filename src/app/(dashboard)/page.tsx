@@ -2,37 +2,69 @@ import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { DashboardHeader } from "@/components/layout/sidebar";
 import { LegalWarningBanner } from "@/components/compliance/legal-warning-banner";
+import { withTimeout } from "@/lib/async/with-timeout";
+
+// 強制每次請求即時渲染，避免被卡在陳舊的靜態快取狀態。
+export const dynamic = "force-dynamic";
+
+// 連線逾時上限（毫秒）。超過就快速失敗顯示錯誤，而非讓整頁無限轉圈。
+const CONNECTION_TIMEOUT_MS = 8000;
 
 async function testSupabaseConnection() {
-  const { data, error, count } = await supabase
-    .from("compliance_rules")
-    .select("rule_code, name", { count: "exact" })
-    .limit(3);
+  try {
+    // 兩個查詢彼此獨立，並行執行以縮短載入時間；並加上逾時保護。
+    const [rulesResult, employeeResult] = await Promise.all([
+      withTimeout(
+        supabase
+          .from("compliance_rules")
+          .select("rule_code, name", { count: "exact" })
+          .limit(3),
+        CONNECTION_TIMEOUT_MS,
+        "Supabase 連線"
+      ),
+      withTimeout(
+        supabase
+          .from("employees")
+          .select("*", { count: "exact", head: true })
+          .neq("status", "resigned"),
+        CONNECTION_TIMEOUT_MS,
+        "員工資料查詢"
+      ),
+    ]);
 
-  if (error) {
+    const { data, error, count } = rulesResult;
+
+    if (error) {
+      return {
+        ok: false as const,
+        message: error.message,
+        rules: [] as { rule_code: string; name: string }[],
+        total: 0,
+        employeeCount: 0,
+      };
+    }
+
+    return {
+      ok: true as const,
+      message:
+        (count ?? 0) > 0
+          ? "已成功連線並讀取資料"
+          : "已成功連線，但資料表尚無資料（若尚未執行 seed.sql 屬正常）",
+      rules: data ?? [],
+      total: count ?? data?.length ?? 0,
+      employeeCount: employeeResult.count ?? 0,
+    };
+  } catch (err) {
     return {
       ok: false as const,
-      message: error.message,
+      message:
+        (err instanceof Error ? err.message : "連線失敗") +
+        "（若持續發生，多為 Supabase 資料庫休眠或網路不穩，稍候重新整理即可）",
       rules: [] as { rule_code: string; name: string }[],
       total: 0,
+      employeeCount: 0,
     };
   }
-
-  const { count: employeeCount } = await supabase
-    .from("employees")
-    .select("*", { count: "exact", head: true })
-    .neq("status", "resigned");
-
-  return {
-    ok: true as const,
-    message:
-      (count ?? 0) > 0
-        ? "已成功連線並讀取資料"
-        : "已成功連線，但資料表尚無資料（若尚未執行 seed.sql 屬正常）",
-    rules: data ?? [],
-    total: count ?? data?.length ?? 0,
-    employeeCount: employeeCount ?? 0,
-  };
 }
 
 export default async function HomePage() {
@@ -76,16 +108,28 @@ export default async function HomePage() {
               accent="emerald"
             />
             <LaunchButton
-              href="/"
-              title="管理後台總覽"
-              subtitle="排班、薪資、員工、打卡紀錄"
+              href="/employees"
+              title="員工管理"
+              subtitle="新增／編輯員工，設定時薪與勞健保"
               accent="blue"
             />
             <LaunchButton
               href="/schedules"
               title="排班管理"
-              subtitle="編輯班表、發布"
+              subtitle="安排早／午／晚診，發布後 LINE 通知"
               accent="violet"
+            />
+            <LaunchButton
+              href="/leave"
+              title="特休管理"
+              subtitle="特休週年制、未休折現結算"
+              accent="emerald"
+            />
+            <LaunchButton
+              href="/clock-records"
+              title="打卡紀錄"
+              subtitle="GPS 打卡、遲到註記、補打卡"
+              accent="blue"
             />
             <LaunchButton
               href="/payroll"
@@ -95,29 +139,6 @@ export default async function HomePage() {
             />
           </div>
         </section>
-
-        <div className="grid gap-4 sm:grid-cols-2">
-          <QuickLink
-            href="/employees"
-            title="員工管理"
-            description="新增、編輯護理師與行政人員，設定時薪與勞健保"
-          />
-          <QuickLink
-            href="/schedules"
-            title="排班管理"
-            description="安排早診、午診、晚診，發布後 LINE 通知員工"
-          />
-          <QuickLink
-            href="/clock-records"
-            title="打卡紀錄"
-            description="檢視 GPS 打卡、遲到註記，主管可修正忘記打卡"
-          />
-          <QuickLink
-            href="/payroll"
-            title="薪資結算"
-            description="四週變形工時自動結算、勞健保扣款與合規預警"
-          />
-        </div>
       </div>
     </>
   );
@@ -175,37 +196,6 @@ function LaunchButton({
       <p className="text-base font-bold text-slate-900">{title}</p>
       <p className="mt-1 text-sm text-slate-500">{subtitle}</p>
       <p className="mt-2 text-xs font-medium text-emerald-700">點一下進入 →</p>
-    </Link>
-  );
-}
-
-function QuickLink({
-  href,
-  title,
-  description,
-  disabled,
-}: {
-  href: string;
-  title: string;
-  description: string;
-  disabled?: boolean;
-}) {
-  if (disabled) {
-    return (
-      <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 px-5 py-4 opacity-60">
-        <p className="font-semibold text-slate-700">{title}</p>
-        <p className="mt-1 text-sm text-slate-500">{description}</p>
-      </div>
-    );
-  }
-
-  return (
-    <Link
-      href={href}
-      className="rounded-xl border border-slate-200 bg-white px-5 py-4 shadow-sm transition hover:border-blue-300 hover:shadow-md"
-    >
-      <p className="font-semibold text-slate-900">{title}</p>
-      <p className="mt-1 text-sm text-slate-500">{description}</p>
     </Link>
   );
 }
