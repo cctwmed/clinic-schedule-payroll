@@ -533,7 +533,7 @@ export function SchedulePageClient({
         >
           <div className="rounded-xl border border-slate-200 bg-white p-4">
             <h3 className="text-sm font-semibold text-slate-800">{legend.track1.title}</h3>
-            <ul className="mt-2 list-inside list-disc space-y-1 text-sm text-slate-600">
+            <ul className="mt-2 list-inside list-disc space-y-1 text-sm text-slate-700">
               {legend.track1.items.map((item) => (
                 <li key={item}>{item}</li>
               ))}
@@ -541,7 +541,7 @@ export function SchedulePageClient({
           </div>
           <div className="rounded-xl border border-slate-200 bg-white p-4">
             <h3 className="text-sm font-semibold text-slate-800">{legend.track2.title}</h3>
-            <ul className="mt-2 list-inside list-disc space-y-1 text-sm text-slate-600">
+            <ul className="mt-2 list-inside list-disc space-y-1 text-sm text-slate-700">
               {legend.track2.items.map((item) => (
                 <li key={item}>{item}</li>
               ))}
@@ -553,7 +553,7 @@ export function SchedulePageClient({
           {rotationMode === "triple" && "track3" in legend && legend.track3 && (
             <div className="rounded-xl border border-slate-200 bg-white p-4">
               <h3 className="text-sm font-semibold text-slate-800">{legend.track3.title}</h3>
-              <ul className="mt-2 list-inside list-disc space-y-1 text-sm text-slate-600">
+              <ul className="mt-2 list-inside list-disc space-y-1 text-sm text-slate-700">
                 {legend.track3.items.map((item) => (
                   <li key={item}>{item}</li>
                 ))}
@@ -565,7 +565,7 @@ export function SchedulePageClient({
 
         <div className="flex flex-wrap items-end gap-3 rounded-xl border border-slate-200 bg-white p-4">
           <div>
-            <label className="mb-1 block text-xs font-medium text-slate-600">
+            <label className="mb-1 block text-xs font-medium text-slate-700">
               快速排班模式
             </label>
             <select
@@ -574,7 +574,7 @@ export function SchedulePageClient({
                 setRotationMode(normalizeScheduleMode(e.target.value as ScheduleRotationMode))
               }
               disabled={isPublished || isPending}
-              className="min-w-56 rounded-lg border border-slate-300 px-3 py-2 text-sm"
+              className="min-w-56 rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-800"
             >
               {SCHEDULE_MODE_OPTIONS.map((opt) => (
                 <option key={opt.id} value={opt.id}>
@@ -584,14 +584,14 @@ export function SchedulePageClient({
             </select>
           </div>
           <div>
-            <label className="mb-1 block text-xs font-medium text-slate-600">
+            <label className="mb-1 block text-xs font-medium text-slate-700">
               員工 A（護理師）
             </label>
             <select
               value={employeeAId}
               onChange={(e) => setEmployeeAId(e.target.value)}
               disabled={isPublished || isPending}
-              className="min-w-40 rounded-lg border border-slate-300 px-3 py-2 text-sm"
+              className="min-w-40 rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-800"
             >
               <option value="">— 請選擇 —</option>
               {employees.map((emp) => (
@@ -602,14 +602,14 @@ export function SchedulePageClient({
             </select>
           </div>
           <div>
-            <label className="mb-1 block text-xs font-medium text-slate-600">
+            <label className="mb-1 block text-xs font-medium text-slate-700">
               員工 B（護理師）
             </label>
             <select
               value={employeeBId}
               onChange={(e) => setEmployeeBId(e.target.value)}
               disabled={isPublished || isPending}
-              className="min-w-40 rounded-lg border border-slate-300 px-3 py-2 text-sm"
+              className="min-w-40 rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-800"
             >
               <option value="">— 請選擇 —</option>
               {employees.map((emp) => (
@@ -621,14 +621,14 @@ export function SchedulePageClient({
           </div>
           {rotationMode === "triple" && (
             <div>
-              <label className="mb-1 block text-xs font-medium text-slate-600">
+              <label className="mb-1 block text-xs font-medium text-slate-700">
                 員工 C（護理師）
               </label>
               <select
                 value={employeeCId}
                 onChange={(e) => setEmployeeCId(e.target.value)}
                 disabled={isPublished || isPending}
-                className="min-w-40 rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                className="min-w-40 rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-800"
               >
                 <option value="">— 請選擇 —</option>
                 {employees.map((emp) => (
@@ -641,14 +641,14 @@ export function SchedulePageClient({
           )}
           {rotationMode === "dual" && (
             <div>
-              <label className="mb-1 block text-xs font-medium text-slate-600">
+              <label className="mb-1 block text-xs font-medium text-slate-700">
                 奇數週員工 A 走
               </label>
               <select
                 value={oddWeekTrackForA}
                 onChange={(e) => setOddWeekTrackForA(Number(e.target.value) as 1 | 2)}
                 disabled={isPublished || isPending}
-                className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-800"
               >
                 <option value={1}>軌道一（週三班：週三早診、週五早午、六日大休）</option>
                 <option value={2}>軌道二（週末班：週三例假、週五午晚、六日早診）</option>
@@ -688,7 +688,7 @@ export function SchedulePageClient({
 
         <section className="rounded-xl border border-slate-300 bg-slate-50/80 p-4">
           <h3 className="text-sm font-semibold text-slate-800">休診日設定</h3>
-          <p className="mt-1 text-xs leading-relaxed text-slate-600">
+          <p className="mt-1 text-xs leading-relaxed text-slate-700">
             請先選<strong>休診原因</strong>（會影響費用）：診所修假不發國定加倍；國定假／颱風停診若仍出勤則依 ≤8h 加發 1,136
             元，超過另計延長加班。日期列「休診」按鈕：若為行政院國定假日會自動帶「國定假日休診」。
           </p>
@@ -706,7 +706,7 @@ export function SchedulePageClient({
                     setClosureReason("national");
                   }
                 }}
-                className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-800"
               />
             </label>
             <label className="block text-xs">
@@ -714,7 +714,7 @@ export function SchedulePageClient({
               <select
                 value={closureReason}
                 onChange={(e) => setClosureReason(e.target.value as ClosureReason)}
-                className="min-w-52 rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                className="min-w-52 rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-800"
               >
                 {(Object.keys(CLOSURE_REASON_LABELS) as ClosureReason[]).map((key) => (
                   <option key={key} value={key}>
@@ -730,7 +730,7 @@ export function SchedulePageClient({
                 value={closureReasonNote}
                 onChange={(e) => setClosureReasonNote(e.target.value)}
                 placeholder="例如：凱米颱風"
-                className="min-w-40 rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                className="min-w-40 rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-800"
               />
             </label>
             {isPublished && (
@@ -741,7 +741,7 @@ export function SchedulePageClient({
                 <select
                   value={closureCreditHours}
                   onChange={(e) => setClosureCreditHours(Number(e.target.value))}
-                  className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                  className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-800"
                 >
                   <option value={GOLDEN_SCHEDULE.DUAL_DAY_HOURS}>
                     全天 {GOLDEN_SCHEDULE.DUAL_DAY_HOURS}h
@@ -767,7 +767,7 @@ export function SchedulePageClient({
           </p>
 
           {closures.length > 0 && (
-            <ul className="mt-3 space-y-1 text-xs text-slate-600">
+            <ul className="mt-3 space-y-1 text-xs text-slate-700">
               {closures.map((c) => {
                 const reason = normalizeClosureReason(c.reason);
                 return (
@@ -816,7 +816,7 @@ export function SchedulePageClient({
                         />
                         {shift.name}
                         {shift.default_clock_in && (
-                          <span className="mt-0.5 block font-normal normal-case text-slate-600">
+                          <span className="mt-0.5 block font-normal normal-case text-slate-700">
                             {shift.default_clock_in.slice(0, 5)}–
                             {shift.default_clock_out?.slice(0, 5)}
                           </span>
@@ -948,7 +948,7 @@ const ScheduleDayRow = memo(function ScheduleDayRow({
         </div>
       </td>
       <td className="px-3 py-2 text-slate-700">{weekdayLabel(workDate)}</td>
-      <td className="px-3 py-2 text-xs text-slate-600">{sessionLabel}</td>
+      <td className="px-3 py-2 text-xs text-slate-700">{sessionLabel}</td>
       {columns.map((shift) => {
         const cellKey = `${workDate}:${shift.id}`;
         const selected = dayAssignments?.[shift.id] ?? "";
@@ -959,7 +959,7 @@ const ScheduleDayRow = memo(function ScheduleDayRow({
               disabled={isPublished || cellPending}
               value={selected ?? ""}
               onChange={(e) => onAssign(workDate, shift, e.target.value)}
-              className="w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-sm outline-none focus:border-blue-400 disabled:bg-slate-100"
+              className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-800 outline-none focus:border-blue-400 disabled:bg-slate-100 disabled:text-slate-600"
             >
               <option value="">—</option>
               {employeeOptions.map((emp) => (

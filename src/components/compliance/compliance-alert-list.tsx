@@ -38,7 +38,7 @@ export function ComplianceAlertList({ issues, maxItems = 8 }: ComplianceAlertLis
         ))}
       </ul>
       {issues.length > maxItems && (
-        <p className="text-xs text-slate-500">另有 {issues.length - maxItems} 項未顯示</p>
+        <p className="text-xs text-slate-600">另有 {issues.length - maxItems} 項未顯示</p>
       )}
     </div>
   );
