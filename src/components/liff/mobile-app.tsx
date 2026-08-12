@@ -25,7 +25,7 @@ const RecordsTab = dynamic(
 );
 const ForgotClockTab = dynamic(
   () => import("@/components/liff/tabs/forgot-clock-tab").then((m) => m.ForgotClockTab),
-  { loading: () => <TabLoading label="忘記打卡" /> }
+  { loading: () => <TabLoading label="忘記/修正打卡" /> }
 );
 const OvertimeTab = dynamic(
   () => import("@/components/liff/tabs/overtime-tab").then((m) => m.OvertimeTab),
@@ -68,7 +68,7 @@ const SUB_PAGE_TITLES: Partial<Record<MobileTab, string>> = {
   payslip: "我的薪資",
   leave: "我要請假",
   records: "出勤紀錄",
-  forgot: "忘記打卡",
+  forgot: "忘記/修正打卡",
   overtime: "我要加班",
 };
 

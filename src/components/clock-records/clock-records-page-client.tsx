@@ -100,7 +100,7 @@ export function ClockRecordsPageClient({
         {pendingCorrections.length > 0 && (
           <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
             <p className="font-semibold">
-              有 {pendingCorrections.length} 筆「忘記打卡補登」待審核
+              有 {pendingCorrections.length} 筆「忘記/修正打卡」待審核
             </p>
             <ul className="mt-3 space-y-2">
               {pendingCorrections.map((req) => (
@@ -129,7 +129,7 @@ export function ClockRecordsPageClient({
                             approved: false,
                           });
                           setMessage(
-                            result.success ? "已駁回補登申請" : result.error ?? "操作失敗"
+                            result.success ? "已駁回申請" : result.error ?? "操作失敗"
                           );
                           if (result.success) router.refresh();
                         });
@@ -148,14 +148,14 @@ export function ClockRecordsPageClient({
                             approved: true,
                           });
                           setMessage(
-                            result.success ? "已核准並補登打卡" : result.error ?? "操作失敗"
+                            result.success ? "已核准（自動補登或修正打卡）" : result.error ?? "操作失敗"
                           );
                           if (result.success) router.refresh();
                         });
                       }}
                       className="rounded-md px-2 py-1 font-medium text-emerald-700 hover:bg-emerald-50"
                     >
-                      核准補登
+                      核准補登/修正
                     </button>
                   </div>
                 </li>

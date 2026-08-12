@@ -103,7 +103,7 @@ export function ForgotClockTab({ lineUserId, onGoBind }: ForgotClockTabProps) {
         setError(data.error ?? "送出失敗");
         return;
       }
-      setMessage("補登申請已送出，請等候管理員於後台審核");
+      setMessage("申請已送出，請等候管理員於後台審核（忘記→補登、打錯→修正）");
       setPendingCount((c) => c + 1);
       setReason("");
     });
@@ -127,9 +127,10 @@ export function ForgotClockTab({ lineUserId, onGoBind }: ForgotClockTabProps) {
       ) : (
         <div className="space-y-4">
           <section className="rounded-2xl border border-amber-100 bg-amber-50/80 p-4 text-sm text-amber-900">
-            <p className="font-medium">補登說明</p>
+            <p className="font-medium">忘記/修正打卡說明</p>
             <p className="mt-1 text-xs leading-relaxed">
-              請先選擇「早診」或「晚診」，再填寫上班／下班與實際時間。管理員會在後台審核補登。
+              忘記打卡，或已打卡但時間打錯，都可在此申請。請先選「早診」或「晚診」，
+              再填寫上班／下班與正確時間；管理員後台審核通過後，會自動補登或修正該筆打卡。
               {pendingCount > 0 && (
                 <span className="mt-1 block font-medium">目前有 {pendingCount} 筆待審核</span>
               )}
@@ -231,7 +232,7 @@ export function ForgotClockTab({ lineUserId, onGoBind }: ForgotClockTabProps) {
               value={reason}
               onChange={(e) => setReason(e.target.value)}
               rows={2}
-              placeholder="例如：忘記按晚診下班打卡"
+              placeholder="例如：忘記按晚診下班打卡，或上班時間打錯"
               className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
             />
 
@@ -240,7 +241,7 @@ export function ForgotClockTab({ lineUserId, onGoBind }: ForgotClockTabProps) {
               disabled={isPending || sessions.length === 0 || !assignmentId}
               className="mt-4 w-full rounded-xl bg-amber-500 py-3 text-sm font-semibold text-white disabled:opacity-50"
             >
-              {isPending ? "送出中…" : "送出補登申請"}
+              {isPending ? "送出中…" : "送出忘記/修正申請"}
             </button>
           </form>
         </div>

@@ -40,7 +40,7 @@ interface GridItem {
 const EMPLOYEE_ITEMS: GridItem[] = [
   {
     id: "forgot",
-    label: "忘記打卡",
+    label: "忘記/修正打卡",
     icon: MapPin,
     action: { type: "tab", tab: "forgot" },
     bgClass: "bg-amber-50",

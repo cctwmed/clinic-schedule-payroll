@@ -170,17 +170,41 @@ export async function reviewCorrectionRequest(input: {
   const earlyEval = evaluateEarlyPunch(clockType, newClockedAt, expectedAtDate);
   const earlyNote = formatEarlyPunchNote(earlyEval);
 
+  // 判斷是「忘記補登」還是「打錯時間修正」：查同日、同診別、同類型是否已有打卡。
+  // 若已存在 → 就地覆蓋該筆（修正），避免同一診別出現兩筆打卡；否則新增（補登）。
+  let existingRecord: { id: string; clocked_at: string } | null = null;
+  {
+    let query = supabase
+      .from("clock_records")
+      .select("id, clocked_at")
+      .eq("employee_id", req.employee_id)
+      .eq("clock_type", clockType)
+      .eq("clock_date", req.work_date);
+    if (assignment?.id) {
+      query = query.eq("assignment_id", assignment.id);
+    }
+    const { data: rows } = await query
+      .order("clocked_at", { ascending: true })
+      .limit(1);
+    if (rows && rows.length > 0) {
+      existingRecord = {
+        id: String(rows[0].id),
+        clocked_at: String(rows[0].clocked_at),
+      };
+    }
+  }
+
   const note = [
     req.reason,
     earlyNote,
-    `【補登核准】${reviewedBy.trim() || "管理員"} 審核通過`,
+    existingRecord
+      ? `【修正核准】${reviewedBy.trim() || "管理員"} 審核通過；原時間 ${existingRecord.clocked_at}`
+      : `【補登核准】${reviewedBy.trim() || "管理員"} 審核通過`,
   ]
     .filter(Boolean)
     .join("；");
 
-  const insertPayload: Record<string, unknown> = {
-    employee_id: req.employee_id,
-    assignment_id: assignment?.id ?? req.assignment_id ?? null,
+  const computed: Record<string, unknown> = {
     clock_type: clockType,
     clocked_at: clockedAt,
     validation: "manual_override",
@@ -199,22 +223,63 @@ export async function reviewCorrectionRequest(input: {
     note,
   };
 
-  let { error: insErr } = await supabase.from("clock_records").insert(insertPayload);
+  const EARLY_KEYS = [
+    "is_early",
+    "early_minutes",
+    "payable_clocked_at",
+    "is_early_abnormal",
+    "early_work_approved",
+  ];
+  const stripEarly = (payload: Record<string, unknown>) => {
+    const clone = { ...payload };
+    for (const key of EARLY_KEYS) delete clone[key];
+    return clone;
+  };
 
-  if (insErr?.message.includes("is_early") || insErr?.message.includes("early_minutes")) {
-    const {
-      is_early: _1,
-      early_minutes: _2,
-      payable_clocked_at: _3,
-      is_early_abnormal: _4,
-      early_work_approved: _5,
-      ...fallback
-    } = insertPayload;
-    ({ error: insErr } = await supabase.from("clock_records").insert(fallback));
+  let writeErr: { message: string } | null = null;
+
+  if (existingRecord) {
+    const updatePayload: Record<string, unknown> = {
+      ...computed,
+      original_clocked_at: existingRecord.clocked_at,
+    };
+    let { error } = await supabase
+      .from("clock_records")
+      .update(updatePayload)
+      .eq("id", existingRecord.id);
+    if (
+      error?.message.includes("is_early") ||
+      error?.message.includes("early_minutes") ||
+      error?.message.includes("original_clocked_at")
+    ) {
+      const fallback = stripEarly(updatePayload);
+      delete fallback.original_clocked_at;
+      ({ error } = await supabase
+        .from("clock_records")
+        .update(fallback)
+        .eq("id", existingRecord.id));
+    }
+    writeErr = error;
+  } else {
+    const insertPayload: Record<string, unknown> = {
+      ...computed,
+      employee_id: req.employee_id,
+      assignment_id: assignment?.id ?? req.assignment_id ?? null,
+    };
+    let { error } = await supabase.from("clock_records").insert(insertPayload);
+    if (
+      error?.message.includes("is_early") ||
+      error?.message.includes("early_minutes")
+    ) {
+      ({ error } = await supabase
+        .from("clock_records")
+        .insert(stripEarly(insertPayload)));
+    }
+    writeErr = error;
   }
 
-  if (insErr) {
-    return { success: false as const, error: insErr.message };
+  if (writeErr) {
+    return { success: false as const, error: writeErr.message };
   }
 
   const { error: updErr } = await supabase
@@ -222,7 +287,9 @@ export async function reviewCorrectionRequest(input: {
     .update({
       status: "approved",
       reviewed_at: new Date().toISOString(),
-      review_note: reviewNote?.trim() || "已補登至打卡紀錄",
+      review_note:
+        reviewNote?.trim() ||
+        (existingRecord ? "已修正打卡紀錄" : "已補登至打卡紀錄"),
     })
     .eq("id", requestId);
 
