@@ -547,7 +547,7 @@ export function SchedulePageClient({
               ))}
             </ul>
             {rotationMode === "dual" && (
-              <p className="mt-3 text-xs text-slate-500">{legend.swapNote}</p>
+              <p className="mt-3 text-xs text-slate-700">{legend.swapNote}</p>
             )}
           </div>
           {rotationMode === "triple" && "track3" in legend && legend.track3 && (
@@ -558,7 +558,7 @@ export function SchedulePageClient({
                   <li key={item}>{item}</li>
                 ))}
               </ul>
-              <p className="mt-3 text-xs text-slate-500">{legend.swapNote}</p>
+              <p className="mt-3 text-xs text-slate-700">{legend.swapNote}</p>
             </div>
           )}
         </div>
@@ -762,7 +762,7 @@ export function SchedulePageClient({
             </button>
           </div>
 
-          <p className="mt-2 text-xs text-slate-500">
+          <p className="mt-2 text-xs text-slate-700">
             {CLOSURE_REASON_PAY_HINTS[closureReason]}
           </p>
 
@@ -794,7 +794,7 @@ export function SchedulePageClient({
         )}
 
         {employees.length < (rotationMode === "triple" ? 3 : 2) ? (
-          <div className="rounded-xl border border-dashed border-slate-300 bg-white px-6 py-12 text-center text-sm text-slate-500">
+          <div className="rounded-xl border border-dashed border-slate-300 bg-white px-6 py-12 text-center text-sm text-slate-700">
             {rotationMode === "triple"
               ? "請先到「員工管理」新增至少 3 位護理師，才能產生三人制班表"
               : "請先到「員工管理」新增 2 位護理師，才能產生雙人制班表"}
@@ -804,7 +804,7 @@ export function SchedulePageClient({
             <div className="overflow-x-auto">
               <table className="min-w-full text-sm">
                 <thead>
-                  <tr className="border-b border-slate-200 bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  <tr className="border-b border-slate-200 bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-700">
                     <th className="sticky left-0 z-10 bg-slate-50 px-3 py-3">日期</th>
                     <th className="px-3 py-3">星期</th>
                     <th className="px-3 py-3">診別</th>
@@ -816,7 +816,7 @@ export function SchedulePageClient({
                         />
                         {shift.name}
                         {shift.default_clock_in && (
-                          <span className="mt-0.5 block font-normal normal-case text-slate-400">
+                          <span className="mt-0.5 block font-normal normal-case text-slate-600">
                             {shift.default_clock_in.slice(0, 5)}–
                             {shift.default_clock_out?.slice(0, 5)}
                           </span>
@@ -947,8 +947,8 @@ const ScheduleDayRow = memo(function ScheduleDayRow({
           )}
         </div>
       </td>
-      <td className="px-3 py-2 text-slate-500">{weekdayLabel(workDate)}</td>
-      <td className="px-3 py-2 text-xs text-slate-400">{sessionLabel}</td>
+      <td className="px-3 py-2 text-slate-700">{weekdayLabel(workDate)}</td>
+      <td className="px-3 py-2 text-xs text-slate-600">{sessionLabel}</td>
       {columns.map((shift) => {
         const cellKey = `${workDate}:${shift.id}`;
         const selected = dayAssignments?.[shift.id] ?? "";
