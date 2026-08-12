@@ -189,6 +189,14 @@ export async function fetchMobilePayslip(
       overtimePay: line.overtimePay,
       restDayOvertimePay: line.restDayOvertimePay,
       restDayWorkDays: line.restDayWorkDays,
+      restDayCycles: (line.restDayCycles ?? [])
+        .filter((c) => c.shortfallDays > 0)
+        .map((c) => ({
+          start: c.start,
+          end: c.end,
+          shortfallDays: c.shortfallDays,
+          pay: c.pay,
+        })),
       holidayDoublePay: line.holidayDoublePay,
       holidayOvertimePay: line.holidayOvertimePay,
       holidayPayTotal: line.specialAttendancePay,

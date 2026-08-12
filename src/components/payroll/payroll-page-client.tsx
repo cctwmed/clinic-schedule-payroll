@@ -571,6 +571,14 @@ export function PayrollPageClient({
                                 短少 {item.restDayWorkDays} 日休（應{" "}
                                 {item.restDayRequiredOffDays}／實 {item.restDayActualOffDays}）
                               </p>
+                              {(item.restDayCycles ?? [])
+                                .filter((c) => c.shortfallDays > 0)
+                                .map((c) => (
+                                  <p key={c.start} className="mt-0.5 text-[11px] text-violet-500">
+                                    四週變形工時未休補貼（結算週期：
+                                    {c.start.replaceAll("-", "/")} ~ {c.end.replaceAll("-", "/")}）
+                                  </p>
+                                ))}
                             </>
                           ) : (
                             "—"

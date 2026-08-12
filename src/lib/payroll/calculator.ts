@@ -8,7 +8,7 @@ import { CLINIC_PAYROLL, sumNonRecurringBonus, sumTaxForm50NonRecurring } from "
 import { calculateMonthlyOvertimePay } from "@/lib/payroll/overtime-pay";
 import { calculateYearEndBonus } from "@/lib/payroll/year-end-bonus";
 import { resolveEmployerInsurancePays } from "@/lib/payroll/insurance-brackets";
-import { calculateRestDayShortfall } from "@/lib/payroll/rest-day-shortfall";
+import { calculateRestDayShortfall, type RestDayCycleDetail } from "@/lib/payroll/rest-day-shortfall";
 import { calculateFullAttendanceBonus } from "@/lib/payroll/full-attendance";
 import type { ClockEvent, DayOffRecord, WorkShiftBlock } from "@/lib/compliance/types";
 import type { LeavePayrollSummary } from "@/lib/payroll/leave-deductions";
@@ -84,6 +84,8 @@ export interface PayrollLineItem {
   /** 計薪週期應休／實休（存查） */
   restDayRequiredOffDays: number;
   restDayActualOffDays: number;
+  /** 逐 28 天週期休假檢核明細（結束日落在本曆月），供薪資單顯示結算週期 */
+  restDayCycles?: RestDayCycleDetail[];
   personalLeaveHours: number;
   personalLeaveDeduction: number;
   sickLeaveHours: number;
@@ -468,6 +470,7 @@ export function calculateEmployeePayroll(
     restDayOvertimePay: restDayShortfall.restDayOvertimePay,
     restDayRequiredOffDays: restDayShortfall.requiredOffDays,
     restDayActualOffDays: restDayShortfall.actualOffDays,
+    restDayCycles: restDayShortfall.cycles,
     personalLeaveHours: leavePay.personalLeaveHours,
     personalLeaveDeduction: leavePay.personalLeaveDeduction,
     sickLeaveHours: leavePay.sickLeaveHours,

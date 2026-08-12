@@ -154,15 +154,28 @@ export const TEMPLATE_OPTIONS = [
 
 export const MORNING_START_OPTIONS: MorningStartOption[] = ["08:20"];
 
+/**
+ * 四週變形工時「基準日（Anchor）」，必須為週一。
+ * 可用環境變數 FLEX_SCHEDULE_ANCHOR_DATE 覆寫；預設為診所導入排班日 2026-08-03（週一）。
+ * 合規檢查與薪資結算共用此錨點，確保所有 28 天週期一致、與曆月脫鉤。
+ */
+function resolveFlexAnchor(): string {
+  const env =
+    typeof process !== "undefined" ? process.env?.FLEX_SCHEDULE_ANCHOR_DATE : undefined;
+  if (env && /^\d{4}-\d{2}-\d{2}$/.test(env)) return env;
+  return "2026-08-03";
+}
+
+export const FLEX_SCHEDULE_ANCHOR_DATE = resolveFlexAnchor();
+
 /** 四週變形工時（醫療保健服務業；日／週以黃金班表為準） */
 export const FLEXIBLE_LABOR = {
   CYCLE_DAYS: 28,
   TWO_WEEK_DAYS: 14,
   /**
-   * 固定週期錨點（必須為週一）。
-   * 與黃金班表 ISO 週對齊：14／28 日區塊自此日起非重疊前進，禁止滾動日窗。
+   * 固定週期錨點（必須為週一）。以 Anchor Date 為起點，每 28 天非重疊前進。
    */
-  CYCLE_EPOCH_MONDAY: "2024-01-01",
+  CYCLE_EPOCH_MONDAY: FLEX_SCHEDULE_ANCHOR_DATE,
   MAX_REGULAR_HOURS_PER_CYCLE: 160,
   MAX_REGULAR_HOURS_PER_DAY: GOLDEN_SCHEDULE.DUAL_DAY_HOURS,
   MAX_HALF_DAY_HOURS: GOLDEN_SCHEDULE.HALF_DAY_HOURS,

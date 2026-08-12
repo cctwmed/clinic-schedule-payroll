@@ -20,6 +20,7 @@ interface PayslipData {
     overtimePay: number;
     restDayOvertimePay?: number;
     restDayWorkDays?: number;
+    restDayCycles?: { start: string; end: string; shortfallDays: number; pay: number }[];
     holidayDoublePay: number;
     holidayOvertimePay: number;
     holidayPayTotal: number;
@@ -177,11 +178,18 @@ export function PayslipTab({ lineUserId, onGoBind }: PayslipTabProps) {
             </p>
             <Row label="平日加班合計" value={data.components.overtimePay} bold />
             {(data.components.restDayOvertimePay ?? 0) > 0 && (
-              <Row
-                label={`休息日加班費（短少 ${data.components.restDayWorkDays ?? 0} 日休）`}
-                value={data.components.restDayOvertimePay!}
-                bold
-              />
+              <>
+                <Row
+                  label={`四週變形工時未休補貼（短少 ${data.components.restDayWorkDays ?? 0} 日休）`}
+                  value={data.components.restDayOvertimePay!}
+                  bold
+                />
+                {(data.components.restDayCycles ?? []).map((c) => (
+                  <p key={c.start} className="text-[11px] text-slate-500">
+                    結算週期：{c.start.replaceAll("-", "/")} ~ {c.end.replaceAll("-", "/")}
+                  </p>
+                ))}
+              </>
             )}
             <p className="mt-2 text-[11px] text-slate-400">{data.overtimeDetail.tier1}</p>
             <p className="text-[11px] text-slate-400">{data.overtimeDetail.tier2}</p>
