@@ -48,7 +48,9 @@ export function calculateRestDayShortfall(input: {
   const { employeeId, periodStart, periodEnd, dayOffs } = input;
   const periodDays = Math.max(1, daysBetweenTaipei(periodStart, periodEnd) + 1);
 
-  const requiredOffDays = Math.round(
+  // 對齊法規「每 28 日 8 日休假（例假＋休息）」基準：以無條件捨去換算。
+  // 避免 30／31 天的長月份被四捨五入成 9 天，對已符合每 4 週 8 日的排班誤課休息日加班費。
+  const requiredOffDays = Math.floor(
     (periodDays / FLEXIBLE_LABOR.CYCLE_DAYS) * FLEXIBLE_LABOR.MIN_OFF_DAYS_PER_CYCLE
   );
 
