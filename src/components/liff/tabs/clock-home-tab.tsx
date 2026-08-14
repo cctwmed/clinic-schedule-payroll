@@ -10,6 +10,7 @@ import { StatusCard } from "@/components/liff/status-card";
 import { getDistanceMeters } from "@/lib/geo/haversine";
 import { getShiftDisplayName } from "@/lib/clock/shift-labels";
 import type { WorkDutyStatus } from "@/lib/clock/work-status";
+import { openManagementPage } from "@/lib/liff/open-management";
 
 type ClockType = "clock_in" | "clock_out";
 
@@ -47,22 +48,6 @@ interface ClockHomeTabProps {
   mode: LiffMode;
   onModeChange: (mode: LiffMode) => void;
   onNavigate?: (tab: MobileTab) => void;
-}
-
-/**
- * 在 LINE 內建瀏覽器裡 window.open("_blank") 常被忽略，導致管理員功能「點了沒反應」。
- * 優先用 LIFF 的 openWindow 開外部瀏覽器（後台需另外登入，外部瀏覽器體驗較穩），
- * 非 LINE 環境則退回一般開新分頁 / 同頁導向。
- */
-function openManagementPage(url: string) {
-  if (typeof window === "undefined") return;
-  const liff = window.liff;
-  if (liff && typeof liff.openWindow === "function") {
-    liff.openWindow({ url, external: true });
-    return;
-  }
-  const opened = window.open(url, "_blank", "noopener,noreferrer");
-  if (!opened) window.location.href = url;
 }
 
 function formatTaipeiDate(dateStr: string): string {
@@ -269,7 +254,7 @@ export function ClockHomeTab({
       return;
     }
     if (action.type === "admin") {
-      openManagementPage(action.href);
+      openManagementPage(action.href, appUrl);
       return;
     }
     if (action.type === "settings") {
@@ -385,6 +370,13 @@ export function ClockHomeTab({
           />
 
           <ModeTabs mode={mode} isClinicAdmin={isClinicAdmin} onChange={onModeChange} />
+
+          {mode === "admin" && (
+            <p className="text-center text-xs leading-relaxed text-slate-600">
+              排班、薪資、審核以<strong className="font-semibold">電腦瀏覽器</strong>
+              為主要操作。電腦會開新分頁進入完整後台；手機則在目前畫面開啟。
+            </p>
+          )}
 
           <FunctionGrid mode={mode} appUrl={appUrl} onAction={handleGridAction} />
 

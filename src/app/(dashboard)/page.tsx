@@ -98,7 +98,7 @@ export default async function HomePage() {
         <section className="rounded-2xl border border-emerald-200 bg-gradient-to-br from-emerald-50 to-sky-50 p-5 shadow-sm">
           <h2 className="text-lg font-bold text-slate-900">電腦快速入口</h2>
           <p className="mt-1 text-sm text-slate-600">
-            不需記 localhost。點下方大按鈕即可進入；也可執行專案內「建立桌面捷徑.bat」在桌面放一鍵圖示。
+            管理後台以電腦瀏覽器為主要操作環境。點下方大按鈕即可進入；也可執行專案內「建立桌面捷徑.bat」在桌面放一鍵圖示。手機僅作備用。
           </p>
           <div className="mt-4 grid gap-3 sm:grid-cols-2">
             <LaunchButton

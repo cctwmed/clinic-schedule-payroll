@@ -8,7 +8,7 @@ export default function LoginPage() {
         <div className="mb-6 text-center">
           <p className="text-xs font-medium uppercase tracking-wider text-emerald-600">診所後台</p>
           <h1 className="mt-1 text-xl font-bold text-slate-900">晴川排班支薪系統</h1>
-          <p className="mt-2 text-sm text-slate-500">請使用管理員帳號登入</p>
+          <p className="mt-2 text-sm text-slate-700">請使用管理員帳號登入（建議使用電腦瀏覽器）</p>
         </div>
 
         <Suspense fallback={<p className="text-center text-sm text-slate-400">載入中…</p>}>
