@@ -21,12 +21,18 @@ interface ClockSheetProps {
   shiftStatuses: ShiftClockStatusDetail[];
   gpsLoading: boolean;
   gpsError: string | null;
+  hasGpsFix: boolean;
+  clinicHasCoords: boolean;
   distanceM: number | null;
   radiusM: number | null;
   withinRange: boolean;
   loading: boolean;
   loadingTarget: string | null;
   onRefreshGps: () => void;
+  onOpenInChrome?: () => void;
+  showChromeFallback?: boolean;
+  unscheduledClockInAt?: string | null;
+  unscheduledClockOutAt?: string | null;
   onClock: (clockType: "clock_in" | "clock_out", assignmentId: string) => void;
 }
 
@@ -39,12 +45,18 @@ export function ClockSheet({
   shiftStatuses,
   gpsLoading,
   gpsError,
+  hasGpsFix,
+  clinicHasCoords,
   distanceM,
   radiusM,
   withinRange,
   loading,
   loadingTarget,
   onRefreshGps,
+  onOpenInChrome,
+  showChromeFallback,
+  unscheduledClockInAt,
+  unscheduledClockOutAt,
   onClock,
 }: ClockSheetProps) {
   if (!open) return null;
@@ -91,20 +103,83 @@ export function ClockSheet({
           </div>
           {distanceM != null && radiusM != null && (
             <p
-              className={`mt-2 text-sm font-medium ${withinRange ? "text-emerald-600" : "text-red-600"}`}
+              className={`mt-2 text-sm font-medium ${withinRange ? "text-emerald-700" : "text-red-700"}`}
             >
               {withinRange
                 ? `✓ 距離 ${distanceM}m（${radiusM}m 範圍內）`
                 : `✗ 距離 ${distanceM}m，超出 ${radiusM}m 範圍`}
             </p>
           )}
-          {gpsError && <p className="mt-1 text-xs text-red-600">{gpsError}</p>}
+          {!gpsLoading && !hasGpsFix && !gpsError && (
+            <p className="mt-2 text-sm text-amber-800">
+              尚未定位。請按右上角「重新定位」（需允許 LINE 使用位置）。
+            </p>
+          )}
+          {hasGpsFix && !clinicHasCoords && (
+            <p className="mt-2 text-sm text-red-700">
+              手機已定位，但診所尚未設定 GPS 座標，無法判斷是否在範圍內。請管理員確認後台診所座標。
+            </p>
+          )}
+          {gpsError && <p className="mt-2 text-xs leading-relaxed text-red-700">{gpsError}</p>}
+          {showChromeFallback && onOpenInChrome && (
+            <button
+              type="button"
+              onClick={onOpenInChrome}
+              className="mt-3 w-full rounded-xl bg-blue-600 py-2.5 text-sm font-semibold text-white"
+            >
+              用 Chrome 開啟打卡（Android 較穩）
+            </button>
+          )}
         </section>
 
         {shiftStatuses.length === 0 ? (
-          <p className="mb-4 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-6 text-center text-sm text-slate-500">
-            今日無排班，無法依診別打卡
-          </p>
+          <div className="mb-4 rounded-2xl border border-amber-200 bg-amber-50 p-4">
+            <p className="text-sm font-semibold text-amber-950">今日尚無診班排程</p>
+            <p className="mt-1 text-xs leading-relaxed text-amber-900">
+              可能是本月班表還沒套用／發布，或今天被排休。仍可先打卡；遲到以 08:20 計算。
+              管理員請用電腦後台「排班管理」把本月班表做好並發布。
+            </p>
+            <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-slate-700">
+              <p>
+                上班 {formatClockTime(unscheduledClockInAt ?? null)}
+                {!unscheduledClockInAt && <span className="text-blue-700"> · 待打</span>}
+              </p>
+              <p>
+                下班 {formatClockTime(unscheduledClockOutAt ?? null)}
+                {unscheduledClockInAt && !unscheduledClockOutAt && (
+                  <span className="text-blue-700"> · 待打</span>
+                )}
+              </p>
+            </div>
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => onClock("clock_in", "")}
+                disabled={!clockReady || loading || !!unscheduledClockInAt}
+                className={`rounded-xl py-3 text-xs font-bold ${
+                  clockReady && !unscheduledClockInAt
+                    ? "bg-emerald-600 text-white shadow-md"
+                    : "cursor-not-allowed bg-slate-100 text-slate-400"
+                }`}
+              >
+                {loading && loadingTarget === "-in" ? "處理中…" : "上班打卡"}
+              </button>
+              <button
+                type="button"
+                onClick={() => onClock("clock_out", "")}
+                disabled={
+                  !clockReady || loading || !unscheduledClockInAt || !!unscheduledClockOutAt
+                }
+                className={`rounded-xl py-3 text-xs font-bold ${
+                  clockReady && unscheduledClockInAt && !unscheduledClockOutAt
+                    ? "bg-orange-500 text-white shadow-md"
+                    : "cursor-not-allowed bg-slate-100 text-slate-400"
+                }`}
+              >
+                {loading && loadingTarget === "-out" ? "處理中…" : "下班打卡"}
+              </button>
+            </div>
+          </div>
         ) : (
           <ul className="mb-4 space-y-3">
             {shiftStatuses.map((shift) => {
@@ -185,9 +260,9 @@ export function ClockSheet({
           </ul>
         )}
 
-        {!clockReady && shiftStatuses.length > 0 && (
-          <p className="mb-3 text-center text-xs text-amber-700">
-            請先完成 GPS 定位並進入診所範圍後，再選擇診別打卡
+        {!clockReady && (
+          <p className="mb-3 text-center text-xs text-amber-800">
+            請先按「重新定位」並進入診所範圍後再打卡
           </p>
         )}
 

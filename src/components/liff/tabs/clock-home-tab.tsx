@@ -8,6 +8,10 @@ import { ModeTabs } from "@/components/liff/mode-tabs";
 import type { LiffMode } from "@/components/liff/mode-switcher";
 import { StatusCard } from "@/components/liff/status-card";
 import { getDistanceMeters } from "@/lib/geo/haversine";
+import {
+  explainGeolocationError,
+  requestCurrentPosition,
+} from "@/lib/geo/request-location";
 import { getShiftDisplayName } from "@/lib/clock/shift-labels";
 import type { WorkDutyStatus } from "@/lib/clock/work-status";
 import { openManagementPage } from "@/lib/liff/open-management";
@@ -133,39 +137,26 @@ export function ClockHomeTab({
   const getLocation = useCallback(() => {
     setGpsError(null);
     setGpsLoading(true);
-    if (!navigator.geolocation) {
-      setGpsError("此裝置不支援 GPS");
-      setGpsLoading(false);
-      return;
-    }
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        setGps({
-          lat: pos.coords.latitude,
-          lng: pos.coords.longitude,
-          accuracy: pos.coords.accuracy,
-        });
+    requestCurrentPosition()
+      .then((pos) => {
+        setGps(pos);
+        setGpsError(null);
+      })
+      .catch((err) => {
+        setGps(null);
+        setGpsError(explainGeolocationError(err));
+      })
+      .finally(() => {
         setGpsLoading(false);
-      },
-      (err) => {
-        setGpsError(err.message);
-        setGpsLoading(false);
-      },
-      { enableHighAccuracy: false, timeout: 8000, maximumAge: 120_000 }
-    );
+      });
   }, []);
-
-  useEffect(() => {
-    if (status?.binding) getLocation();
-  }, [status?.binding, getLocation]);
 
   useEffect(() => {
     const action = new URLSearchParams(window.location.search).get("action");
     if (action === "clock_in" || action === "clock_out") {
       setClockSheetOpen(true);
-      getLocation();
     }
-  }, [getLocation]);
+  }, []);
 
   const distanceM = useMemo(() => {
     if (!gps || status?.clinic.latitude == null || status?.clinic.longitude == null) return null;
@@ -225,7 +216,7 @@ export function ClockHomeTab({
           lineUserId,
           employeeId: status?.binding?.employeeId ?? selectedEmployeeId,
           clockType,
-          assignmentId,
+          ...(assignmentId ? { assignmentId } : {}),
           latitude: gps.lat,
           longitude: gps.lng,
           accuracy: gps.accuracy,
@@ -412,12 +403,22 @@ export function ClockHomeTab({
           shiftStatuses={status.shiftStatuses}
           gpsLoading={gpsLoading}
           gpsError={gpsError}
+          hasGpsFix={!!gps}
+          clinicHasCoords={
+            status.clinic.latitude != null && status.clinic.longitude != null
+          }
           distanceM={distanceM}
           radiusM={status.clinic.radiusM}
           withinRange={!!withinRange}
           loading={loading}
           loadingTarget={loadingTarget}
           onRefreshGps={getLocation}
+          unscheduledClockInAt={
+            todayClocks.find((c) => c.clock_type === "clock_in")?.clocked_at ?? null
+          }
+          unscheduledClockOutAt={
+            todayClocks.find((c) => c.clock_type === "clock_out")?.clocked_at ?? null
+          }
           onClock={handleClock}
         />
       )}
