@@ -3,6 +3,7 @@
 import { MapPin, X } from "lucide-react";
 import {
   formatShiftClockActionLabel,
+  formatShiftClockConfirmedLabel,
   getShiftDisplayName,
 } from "@/lib/clock/shift-labels";
 import {
@@ -157,12 +158,18 @@ export function ClockSheet({
                 onClick={() => onClock("clock_in", "")}
                 disabled={!clockReady || loading || !!unscheduledClockInAt}
                 className={`rounded-xl py-3 text-xs font-bold ${
-                  clockReady && !unscheduledClockInAt
-                    ? "bg-emerald-600 text-white shadow-md"
-                    : "cursor-not-allowed bg-slate-100 text-slate-400"
+                  unscheduledClockInAt
+                    ? "cursor-default border border-emerald-300 bg-emerald-100 text-emerald-800"
+                    : clockReady
+                      ? "bg-emerald-600 text-white shadow-md"
+                      : "cursor-not-allowed bg-slate-100 text-slate-400"
                 }`}
               >
-                {loading && loadingTarget === "-in" ? "處理中…" : "上班打卡"}
+                {loading && loadingTarget === "-in"
+                  ? "處理中…"
+                  : unscheduledClockInAt
+                    ? "已確認打卡"
+                    : "上班打卡"}
               </button>
               <button
                 type="button"
@@ -171,12 +178,18 @@ export function ClockSheet({
                   !clockReady || loading || !unscheduledClockInAt || !!unscheduledClockOutAt
                 }
                 className={`rounded-xl py-3 text-xs font-bold ${
-                  clockReady && unscheduledClockInAt && !unscheduledClockOutAt
-                    ? "bg-orange-500 text-white shadow-md"
-                    : "cursor-not-allowed bg-slate-100 text-slate-400"
+                  unscheduledClockOutAt
+                    ? "cursor-default border border-orange-300 bg-orange-100 text-orange-800"
+                    : clockReady && unscheduledClockInAt
+                      ? "bg-orange-500 text-white shadow-md"
+                      : "cursor-not-allowed bg-slate-100 text-slate-400"
                 }`}
               >
-                {loading && loadingTarget === "-out" ? "處理中…" : "下班打卡"}
+                {loading && loadingTarget === "-out"
+                  ? "處理中…"
+                  : unscheduledClockOutAt
+                    ? "已確認下班"
+                    : "下班打卡"}
               </button>
             </div>
           </div>
@@ -185,8 +198,10 @@ export function ClockSheet({
             {shiftStatuses.map((shift) => {
               const label = getShiftDisplayName(shift.shiftCode, shift.shiftName);
               const range = formatTimeRange(shift.expectedClockIn, shift.expectedClockOut);
-              const canIn = shift.nextAction === "clock_in" && clockReady;
-              const canOut = shift.nextAction === "clock_out" && clockReady;
+              const inDone = !!shift.clockInAt;
+              const outDone = !!shift.clockOutAt;
+              const canIn = shift.nextAction === "clock_in" && clockReady && !inDone;
+              const canOut = shift.nextAction === "clock_out" && clockReady && !outDone;
               const inKey = `${shift.assignmentId}-in`;
               const outKey = `${shift.assignmentId}-out`;
 
@@ -204,7 +219,7 @@ export function ClockSheet({
                     </div>
                     {shift.isActive && (
                       <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-medium text-emerald-700">
-                        建議
+                        下一步
                       </span>
                     )}
                   </div>
@@ -212,13 +227,15 @@ export function ClockSheet({
                   <div className="mt-2 grid grid-cols-2 gap-2 text-xs text-slate-600">
                     <p>
                       上班 {formatClockTime(shift.clockInAt)}
-                      {!shift.clockInAt && shift.nextAction === "clock_in" && (
+                      {inDone && <span className="font-medium text-emerald-700"> · 已確認</span>}
+                      {!inDone && shift.nextAction === "clock_in" && (
                         <span className="text-blue-600"> · 待打</span>
                       )}
                     </p>
                     <p>
                       下班 {formatClockTime(shift.clockOutAt)}
-                      {!shift.clockOutAt && shift.nextAction === "clock_out" && (
+                      {outDone && <span className="font-medium text-orange-700"> · 已確認</span>}
+                      {!outDone && shift.nextAction === "clock_out" && (
                         <span className="text-blue-600"> · 待打</span>
                       )}
                     </p>
@@ -230,28 +247,52 @@ export function ClockSheet({
                       onClick={() => onClock("clock_in", shift.assignmentId)}
                       disabled={!canIn || loading}
                       className={`rounded-xl py-3 text-xs font-bold transition-all ${
-                        canIn
-                          ? "bg-emerald-600 text-white shadow-md"
-                          : "cursor-not-allowed bg-slate-100 text-slate-400"
+                        inDone
+                          ? "cursor-default border border-emerald-300 bg-emerald-100 text-emerald-800"
+                          : canIn
+                            ? "bg-emerald-600 text-white shadow-md"
+                            : "cursor-not-allowed bg-slate-100 text-slate-400"
                       }`}
                     >
                       {loading && loadingTarget === inKey
                         ? "處理中…"
-                        : formatShiftClockActionLabel(shift.shiftCode, shift.shiftName, "clock_in")}
+                        : inDone
+                          ? formatShiftClockConfirmedLabel(
+                              shift.shiftCode,
+                              shift.shiftName,
+                              "clock_in"
+                            )
+                          : formatShiftClockActionLabel(
+                              shift.shiftCode,
+                              shift.shiftName,
+                              "clock_in"
+                            )}
                     </button>
                     <button
                       type="button"
                       onClick={() => onClock("clock_out", shift.assignmentId)}
                       disabled={!canOut || loading}
                       className={`rounded-xl py-3 text-xs font-bold transition-all ${
-                        canOut
-                          ? "bg-orange-500 text-white shadow-md"
-                          : "cursor-not-allowed bg-slate-100 text-slate-400"
+                        outDone
+                          ? "cursor-default border border-orange-300 bg-orange-100 text-orange-800"
+                          : canOut
+                            ? "bg-orange-500 text-white shadow-md"
+                            : "cursor-not-allowed bg-slate-100 text-slate-400"
                       }`}
                     >
                       {loading && loadingTarget === outKey
                         ? "處理中…"
-                        : formatShiftClockActionLabel(shift.shiftCode, shift.shiftName, "clock_out")}
+                        : outDone
+                          ? formatShiftClockConfirmedLabel(
+                              shift.shiftCode,
+                              shift.shiftName,
+                              "clock_out"
+                            )
+                          : formatShiftClockActionLabel(
+                              shift.shiftCode,
+                              shift.shiftName,
+                              "clock_out"
+                            )}
                     </button>
                   </div>
                 </li>

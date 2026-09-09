@@ -63,19 +63,26 @@ export function buildShiftClockStatuses(
       })?.id ?? null;
   }
 
+  let foundCurrent = false;
+
   return work.map((assignment, index) => {
     const clockIn = findClock(clocks, assignment.id, "clock_in");
     const clockOut = findClock(clocks, assignment.id, "clock_out");
 
     let phase: ShiftClockPhase = "pending";
-    let nextAction: "clock_in" | "clock_out" | null = "clock_in";
+    let nextAction: "clock_in" | "clock_out" | null = null;
 
     if (clockOut) {
       phase = "done";
-      nextAction = null;
     } else if (clockIn) {
       phase = "working";
-      nextAction = "clock_out";
+      if (!foundCurrent) {
+        nextAction = "clock_out";
+        foundCurrent = true;
+      }
+    } else if (!foundCurrent) {
+      nextAction = "clock_in";
+      foundCurrent = true;
     }
 
     return {

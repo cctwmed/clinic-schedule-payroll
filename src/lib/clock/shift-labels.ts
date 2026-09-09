@@ -29,6 +29,17 @@ export function formatShiftClockActionLabel(
   return `${session} · ${action}`;
 }
 
+export function formatShiftClockConfirmedLabel(
+  shiftCode: string,
+  shiftName: string,
+  clockType: "clock_in" | "clock_out"
+): string {
+  const session = getShiftDisplayName(shiftCode, shiftName);
+  return clockType === "clock_in"
+    ? `${session} · 已確認打卡`
+    : `${session} · 已確認下班`;
+}
+
 export function isWorkShiftCode(code: string): boolean {
   return WORK_SHIFT_CODES.includes(code as WorkShiftCode);
 }

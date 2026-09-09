@@ -199,6 +199,16 @@ export function resolveClockForAssignment(
     return { error: "找不到所選診別，請確認當日班表" };
   }
 
+  const blocked = getSequentialClockBlockReason(
+    assignments,
+    clocks,
+    assignmentId,
+    clockType
+  );
+  if (blocked) {
+    return { error: blocked };
+  }
+
   if (clockType === "clock_in") {
     if (hasClockForAssignment(clocks, assignmentId, "clock_in")) {
       return { error: `${assignment.shift_name} 已打過上班卡` };
@@ -244,16 +254,43 @@ export function suggestNextClockAction(
   clocks: ExistingClock[]
 ): "clock_in" | "clock_out" | "done" {
   const work = filterWorkAssignments(assignments);
+  // 必須依診別順序：早診上→早診下→晚診上→晚診下，不可跳打下一診上班。
   for (const a of work) {
     if (!hasClockForAssignment(clocks, a.id, "clock_in")) return "clock_in";
-  }
-  for (const a of work) {
-    if (
-      hasClockForAssignment(clocks, a.id, "clock_in") &&
-      !hasClockForAssignment(clocks, a.id, "clock_out")
-    ) {
-      return "clock_out";
-    }
+    if (!hasClockForAssignment(clocks, a.id, "clock_out")) return "clock_out";
   }
   return "done";
+}
+
+/** 上一診未下班前，不可打下一診上班 */
+export function getSequentialClockBlockReason(
+  assignments: WorkAssignment[],
+  clocks: ExistingClock[],
+  assignmentId: string,
+  clockType: "clock_in" | "clock_out"
+): string | null {
+  const work = filterWorkAssignments(assignments);
+  const index = work.findIndex((a) => a.id === assignmentId);
+  if (index < 0) return null;
+
+  for (let i = 0; i < index; i++) {
+    const prev = work[i];
+    const prevName = prev.shift_name || "上一診";
+    if (!hasClockForAssignment(clocks, prev.id, "clock_in")) {
+      return `請先完成${prevName}上班打卡`;
+    }
+    if (!hasClockForAssignment(clocks, prev.id, "clock_out")) {
+      return `請先完成${prevName}下班打卡，才能打下一診`;
+    }
+  }
+
+  const current = work[index];
+  if (
+    clockType === "clock_out" &&
+    !hasClockForAssignment(clocks, current.id, "clock_in")
+  ) {
+    return `${current.shift_name}尚未打上班卡，無法下班打卡`;
+  }
+
+  return null;
 }
