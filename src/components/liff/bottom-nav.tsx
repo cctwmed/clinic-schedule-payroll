@@ -7,7 +7,12 @@ export type MobileTab =
   | "leave"
   | "records"
   | "forgot"
-  | "overtime";
+  | "overtime"
+  | "admin-inbox"
+  | "admin-schedule"
+  | "admin-people"
+  | "admin-pay"
+  | "admin-clocks";
 
 const TABS: { id: MobileTab; label: string; icon: string }[] = [
   { id: "clock", label: "首頁", icon: "🏠" },

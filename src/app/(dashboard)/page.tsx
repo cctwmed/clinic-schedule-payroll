@@ -95,40 +95,33 @@ export default async function HomePage() {
           {connection.message}
         </div>
 
-        <section className="rounded-2xl border border-emerald-200 bg-gradient-to-br from-emerald-50 to-sky-50 p-5 shadow-sm">
-          <h2 className="text-lg font-bold text-slate-900">電腦快速入口</h2>
-          <p className="mt-1 text-sm text-slate-600">
-            管理後台以電腦瀏覽器為主要操作環境。點下方大按鈕即可進入；也可執行專案內「建立桌面捷徑.bat」在桌面放一鍵圖示。手機僅作備用。
+        <section className="rounded-2xl border-2 border-emerald-400 bg-gradient-to-br from-emerald-50 to-sky-50 p-5 shadow-sm">
+          <h2 className="text-lg font-bold text-black">請只用這一個入口</h2>
+          <p className="mt-2 text-sm leading-relaxed text-black">
+            這台電腦請雙擊專案資料夾裡的「啟動系統.bat」，瀏覽器會開啟
+            <span className="font-semibold"> http://localhost:3001</span>
+            。排班、請假審核、異常打卡、薪資都走左上選單，不要再開第二個網址或舊的 Vercel 分頁。
+          </p>
+          <p className="mt-2 text-sm leading-relaxed text-black">
+            員工打卡、請假申請只用 LINE 官方帳號。管理員葉昱麟在 LINE 切到「管理員」後，請假與異常打卡可直接在 App 內審核。
           </p>
           <div className="mt-4 grid gap-3 sm:grid-cols-2">
             <LaunchButton
-              href="https://clinic-schedule-payroll.vercel.app/liff/clock"
-              title="LINE 打卡（手機／電腦）"
-              subtitle="同仁打卡、請假、管理員分頁"
-              accent="emerald"
-            />
-            <LaunchButton
-              href="/employees"
-              title="員工管理"
-              subtitle="新增／編輯員工，設定時薪與勞健保"
-              accent="blue"
-            />
-            <LaunchButton
               href="/schedules"
               title="排班管理"
-              subtitle="安排早／午／晚診，發布後 LINE 通知"
+              subtitle="早／晚診，一診可排 1～6 人"
               accent="violet"
             />
             <LaunchButton
               href="/leave"
-              title="特休管理"
-              subtitle="特休週年制、未休折現結算"
+              title="請假審核"
+              subtitle="待審請假核准／駁回"
               accent="emerald"
             />
             <LaunchButton
               href="/clock-records"
-              title="打卡紀錄"
-              subtitle="GPS 打卡、遲到註記、補打卡"
+              title="異常打卡審核"
+              subtitle="補打卡、提早、加班"
               accent="blue"
             />
             <LaunchButton

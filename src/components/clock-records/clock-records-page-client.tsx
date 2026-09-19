@@ -75,14 +75,14 @@ export function ClockRecordsPageClient({
           <div className="flex items-center gap-2">
             <button
               onClick={() => changeDate(-1)}
-              className="rounded-lg border border-slate-300 px-3 py-2 text-sm hover:bg-slate-50"
+              className="rounded-lg border border-slate-800 bg-white px-3 py-2 text-sm font-semibold text-black hover:bg-slate-100"
             >
               ← 前一天
             </button>
-            <span className="min-w-28 text-center text-sm font-semibold">{date}</span>
+            <span className="min-w-28 text-center text-sm font-semibold text-black">{date}</span>
             <button
               onClick={() => changeDate(1)}
-              className="rounded-lg border border-slate-300 px-3 py-2 text-sm hover:bg-slate-50"
+              className="rounded-lg border border-slate-800 bg-white px-3 py-2 text-sm font-semibold text-black hover:bg-slate-100"
             >
               後一天 →
             </button>
@@ -118,7 +118,7 @@ export function ClockRecordsPageClient({
                       <p className="mt-0.5 text-slate-500">原因：{req.reason}</p>
                     )}
                   </div>
-                  <div className="flex gap-1">
+                  <div className="flex w-full gap-2 sm:w-auto">
                     <button
                       type="button"
                       disabled={isPending}
@@ -134,7 +134,7 @@ export function ClockRecordsPageClient({
                           if (result.success) router.refresh();
                         });
                       }}
-                      className="rounded-md px-2 py-1 text-slate-600 hover:bg-slate-100"
+                      className="min-h-11 flex-1 rounded-lg border border-slate-800 bg-white px-4 py-2 text-sm font-semibold text-black hover:bg-slate-100 sm:flex-none"
                     >
                       駁回
                     </button>
@@ -153,7 +153,7 @@ export function ClockRecordsPageClient({
                           if (result.success) router.refresh();
                         });
                       }}
-                      className="rounded-md px-2 py-1 font-medium text-emerald-700 hover:bg-emerald-50"
+                      className="min-h-11 flex-1 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 sm:flex-none"
                     >
                       核准補登/修正
                     </button>
@@ -187,7 +187,7 @@ export function ClockRecordsPageClient({
                       <p className="mt-0.5 text-slate-500">原因：{req.reason}</p>
                     )}
                   </div>
-                  <div className="flex gap-1">
+                  <div className="flex w-full gap-2 sm:w-auto">
                     <button
                       type="button"
                       disabled={isPending}
@@ -203,7 +203,7 @@ export function ClockRecordsPageClient({
                           if (result.success) router.refresh();
                         });
                       }}
-                      className="rounded-md px-2 py-1 text-slate-600 hover:bg-slate-100"
+                      className="min-h-11 flex-1 rounded-lg border border-slate-800 bg-white px-4 py-2 text-sm font-semibold text-black hover:bg-slate-100 sm:flex-none"
                     >
                       駁回
                     </button>
@@ -224,7 +224,7 @@ export function ClockRecordsPageClient({
                           if (result.success) router.refresh();
                         });
                       }}
-                      className="rounded-md px-2 py-1 font-medium text-violet-700 hover:bg-violet-50"
+                      className="min-h-11 flex-1 rounded-lg bg-violet-600 px-4 py-2 text-sm font-semibold text-white hover:bg-violet-700 sm:flex-none"
                     >
                       核准加班
                     </button>
@@ -403,7 +403,7 @@ export function ClockRecordsPageClient({
                                     });
                                   }}
                                   disabled={isPending}
-                                  className="rounded-md px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-100"
+                                  className="min-h-11 rounded-lg border border-slate-800 bg-white px-3 py-2 text-sm font-semibold text-black hover:bg-slate-100"
                                 >
                                   維持對齊班表
                                 </button>
@@ -424,7 +424,7 @@ export function ClockRecordsPageClient({
                                     });
                                   }}
                                   disabled={isPending}
-                                  className="rounded-md px-2 py-1 text-xs font-medium text-emerald-700 hover:bg-emerald-50"
+                                  className="min-h-11 rounded-lg bg-emerald-600 px-3 py-2 text-sm font-semibold text-white hover:bg-emerald-700"
                                 >
                                   核可提早工時
                                 </button>

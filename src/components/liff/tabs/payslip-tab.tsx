@@ -114,14 +114,20 @@ export function PayslipTab({ lineUserId, onGoBind }: PayslipTabProps) {
       <header className="mb-4 text-center">
         <h1 className="text-xl font-bold">薪水報表</h1>
         <div className="mt-3 flex items-center justify-center gap-3">
-          <button onClick={() => changeMonth(-1)} className="rounded-lg border px-3 py-1 text-sm">
-            ←
+          <button
+            onClick={() => changeMonth(-1)}
+            className="rounded-lg border border-slate-800 bg-white px-3 py-1 text-sm font-semibold text-black"
+          >
+            ← 上個月
           </button>
-          <span className="font-semibold">
+          <span className="font-semibold text-black">
             {year} 年 {month} 月
           </span>
-          <button onClick={() => changeMonth(1)} className="rounded-lg border px-3 py-1 text-sm">
-            →
+          <button
+            onClick={() => changeMonth(1)}
+            className="rounded-lg border border-slate-800 bg-white px-3 py-1 text-sm font-semibold text-black"
+          >
+            下個月 →
           </button>
         </div>
       </header>

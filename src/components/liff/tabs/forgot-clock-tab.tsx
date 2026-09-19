@@ -80,7 +80,7 @@ export function ForgotClockTab({ lineUserId, onGoBind }: ForgotClockTabProps) {
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!assignmentId) {
-      setError("請選擇診別（早診／晚診）");
+      setError("請選擇診別（依當日班表）");
       return;
     }
     setError(null);
@@ -129,7 +129,7 @@ export function ForgotClockTab({ lineUserId, onGoBind }: ForgotClockTabProps) {
           <section className="rounded-2xl border border-amber-100 bg-amber-50/80 p-4 text-sm text-amber-900">
             <p className="font-medium">忘記/修正打卡說明</p>
             <p className="mt-1 text-xs leading-relaxed">
-              忘記打卡，或已打卡但時間打錯，都可在此申請。請先選「早診」或「晚診」，
+              忘記打卡，或已打卡但時間打錯，都可在此申請。請先選當日診別（早／午／晚，依班表），
               再填寫上班／下班與正確時間；管理員後台審核通過後，會自動補登或修正該筆打卡。
               {pendingCount > 0 && (
                 <span className="mt-1 block font-medium">目前有 {pendingCount} 筆待審核</span>

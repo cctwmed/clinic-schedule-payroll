@@ -41,10 +41,24 @@ export interface ScheduleEmployee {
   job_title?: string | null;
 }
 
+/** 一格可排多人（一診 1～6 人）；空陣列＝未排 */
 export interface DayAssignmentMap {
   [workDate: string]: {
-    [shiftTypeId: string]: string | null;
+    [shiftTypeId: string]: string[];
   };
+}
+
+export function cellStaffIds(
+  value: string[] | string | null | undefined
+): string[] {
+  if (value == null || value === "") return [];
+  if (Array.isArray(value)) {
+    return [...new Set(value.filter(Boolean))];
+  }
+  return String(value)
+    .split(",")
+    .map((id) => id.trim())
+    .filter(Boolean);
 }
 
 export const SCHEDULE_STATUS_LABELS: Record<ScheduleStatus, string> = {

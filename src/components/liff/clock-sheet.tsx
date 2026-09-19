@@ -1,6 +1,14 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { MapPin, X } from "lucide-react";
+import {
+  CLOCK_EARLY_MINUTES,
+  evaluateClockWindow,
+  expectedAtOnWorkDate,
+  formatTaipeiClockHm,
+} from "@/lib/clock/clock-window";
+import { DEFAULT_CLOCK_IN_TIME } from "@/lib/clock/session";
 import {
   formatShiftClockActionLabel,
   formatShiftClockConfirmedLabel,
@@ -19,6 +27,7 @@ interface ClockSheetProps {
   clinicName: string;
   employeeName: string;
   duty: WorkDutyStatus;
+  workDate: string;
   shiftStatuses: ShiftClockStatusDetail[];
   gpsLoading: boolean;
   gpsError: string | null;
@@ -43,6 +52,7 @@ export function ClockSheet({
   clinicName,
   employeeName,
   duty,
+  workDate,
   shiftStatuses,
   gpsLoading,
   gpsError,
@@ -60,9 +70,23 @@ export function ClockSheet({
   unscheduledClockOutAt,
   onClock,
 }: ClockSheetProps) {
+  const [now, setNow] = useState(() => new Date());
+
+  useEffect(() => {
+    if (!open) return;
+    setNow(new Date());
+    const id = window.setInterval(() => setNow(new Date()), 15_000);
+    return () => window.clearInterval(id);
+  }, [open]);
+
   if (!open) return null;
 
   const clockReady = withinRange && !gpsLoading;
+  const unscheduledExpectedIn = expectedAtOnWorkDate(workDate, DEFAULT_CLOCK_IN_TIME);
+  const unscheduledInWindow = evaluateClockWindow(now, unscheduledExpectedIn);
+  const unscheduledEarliestIn = formatTaipeiClockHm(
+    unscheduledInWindow.earliestAt ?? unscheduledExpectedIn
+  );
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col justify-end">
@@ -77,6 +101,11 @@ export function ClockSheet({
           <div>
             <h3 className="text-lg font-bold text-slate-900">GPS 打卡</h3>
             <p className="text-xs text-slate-500">{employeeName} · {clinicName}</p>
+            <p className="mt-1 text-[11px] leading-relaxed text-slate-500">
+              依當日班表打卡：兩段班早／晚各一組，三段班早／午／晚三組。
+              上班最早可提前 {CLOCK_EARLY_MINUTES} 分鐘；下班須先打上班，且最早可於班表結束前{" "}
+              {CLOCK_EARLY_MINUTES} 分鐘打卡。
+            </p>
           </div>
           <button
             type="button"
@@ -137,8 +166,9 @@ export function ClockSheet({
           <div className="mb-4 rounded-2xl border border-amber-200 bg-amber-50 p-4">
             <p className="text-sm font-semibold text-amber-950">今日尚無診班排程</p>
             <p className="mt-1 text-xs leading-relaxed text-amber-900">
-              可能是本月班表還沒套用／發布，或今天被排休。仍可先打卡；遲到以 08:20 計算。
-              管理員請用電腦後台「排班管理」把本月班表做好並發布。
+              可能是本月班表還沒套用／發布，或今天被排休。仍可先打卡；遲到以{" "}
+              {DEFAULT_CLOCK_IN_TIME} 計算。上班最早 {unscheduledEarliestIn}；下班在上班打卡後即可打。
+              有班表時：兩段班打早／晚兩組，三段班打早／午／晚三組。
             </p>
             <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-slate-700">
               <p>
@@ -156,11 +186,16 @@ export function ClockSheet({
               <button
                 type="button"
                 onClick={() => onClock("clock_in", "")}
-                disabled={!clockReady || loading || !!unscheduledClockInAt}
+                disabled={
+                  !clockReady ||
+                  loading ||
+                  !!unscheduledClockInAt ||
+                  !unscheduledInWindow.allowed
+                }
                 className={`rounded-xl py-3 text-xs font-bold ${
                   unscheduledClockInAt
                     ? "cursor-default border border-emerald-300 bg-emerald-100 text-emerald-800"
-                    : clockReady
+                    : clockReady && unscheduledInWindow.allowed
                       ? "bg-emerald-600 text-white shadow-md"
                       : "cursor-not-allowed bg-slate-100 text-slate-400"
                 }`}
@@ -168,8 +203,10 @@ export function ClockSheet({
                 {loading && loadingTarget === "-in"
                   ? "處理中…"
                   : unscheduledClockInAt
-                    ? "已確認打卡"
-                    : "上班打卡"}
+                    ? "已打卡"
+                    : unscheduledInWindow.allowed
+                      ? "上班打卡"
+                      : `${unscheduledEarliestIn} 起可打`}
               </button>
               <button
                 type="button"
@@ -188,7 +225,7 @@ export function ClockSheet({
                 {loading && loadingTarget === "-out"
                   ? "處理中…"
                   : unscheduledClockOutAt
-                    ? "已確認下班"
+                    ? "已下班"
                     : "下班打卡"}
               </button>
             </div>
@@ -198,10 +235,24 @@ export function ClockSheet({
             {shiftStatuses.map((shift) => {
               const label = getShiftDisplayName(shift.shiftCode, shift.shiftName);
               const range = formatTimeRange(shift.expectedClockIn, shift.expectedClockOut);
+              const expectedIn = expectedAtOnWorkDate(workDate, shift.expectedClockIn);
+              const expectedOut = expectedAtOnWorkDate(workDate, shift.expectedClockOut);
+              const inWindow = evaluateClockWindow(now, expectedIn);
+              const outWindow = evaluateClockWindow(now, expectedOut);
+              const earliestIn = formatTaipeiClockHm(inWindow.earliestAt ?? expectedIn);
+              const earliestOut = formatTaipeiClockHm(outWindow.earliestAt ?? expectedOut);
               const inDone = !!shift.clockInAt;
               const outDone = !!shift.clockOutAt;
-              const canIn = shift.nextAction === "clock_in" && clockReady && !inDone;
-              const canOut = shift.nextAction === "clock_out" && clockReady && !outDone;
+              const canIn =
+                shift.nextAction === "clock_in" &&
+                clockReady &&
+                !inDone &&
+                inWindow.allowed;
+              const canOut =
+                shift.nextAction === "clock_out" &&
+                clockReady &&
+                !outDone &&
+                outWindow.allowed;
               const inKey = `${shift.assignmentId}-in`;
               const outKey = `${shift.assignmentId}-out`;
 
@@ -227,19 +278,27 @@ export function ClockSheet({
                   <div className="mt-2 grid grid-cols-2 gap-2 text-xs text-slate-600">
                     <p>
                       上班 {formatClockTime(shift.clockInAt)}
-                      {inDone && <span className="font-medium text-emerald-700"> · 已確認</span>}
+                      {inDone && <span className="font-medium text-emerald-700"> · 已打卡</span>}
                       {!inDone && shift.nextAction === "clock_in" && (
                         <span className="text-blue-600"> · 待打</span>
                       )}
                     </p>
                     <p>
                       下班 {formatClockTime(shift.clockOutAt)}
-                      {outDone && <span className="font-medium text-orange-700"> · 已確認</span>}
+                      {outDone && <span className="font-medium text-orange-700"> · 已下班</span>}
                       {!outDone && shift.nextAction === "clock_out" && (
                         <span className="text-blue-600"> · 待打</span>
                       )}
                     </p>
                   </div>
+                  <p className="mt-2 text-[11px] leading-relaxed text-slate-500">
+                    上班最早 {earliestIn}
+                    {inDone && !outDone
+                      ? ` · 下班最早 ${earliestOut}${
+                          outWindow.allowed ? "，現在可打" : "，尚未到時間"
+                        }`
+                      : ` · 下班最早 ${earliestOut}（須先打上班）`}
+                  </p>
 
                   <div className="mt-3 grid grid-cols-2 gap-2">
                     <button
@@ -262,11 +321,13 @@ export function ClockSheet({
                               shift.shiftName,
                               "clock_in"
                             )
-                          : formatShiftClockActionLabel(
-                              shift.shiftCode,
-                              shift.shiftName,
-                              "clock_in"
-                            )}
+                          : !inWindow.allowed && shift.nextAction === "clock_in"
+                            ? `${earliestIn} 起可打`
+                            : formatShiftClockActionLabel(
+                                shift.shiftCode,
+                                shift.shiftName,
+                                "clock_in"
+                              )}
                     </button>
                     <button
                       type="button"
@@ -288,11 +349,13 @@ export function ClockSheet({
                               shift.shiftName,
                               "clock_out"
                             )
-                          : formatShiftClockActionLabel(
-                              shift.shiftCode,
-                              shift.shiftName,
-                              "clock_out"
-                            )}
+                          : !outWindow.allowed && shift.nextAction === "clock_out"
+                            ? `${earliestOut} 起可打`
+                            : formatShiftClockActionLabel(
+                                shift.shiftCode,
+                                shift.shiftName,
+                                "clock_out"
+                              )}
                     </button>
                   </div>
                 </li>

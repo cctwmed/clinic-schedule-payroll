@@ -14,7 +14,11 @@ import {
 } from "@/lib/geo/request-location";
 import { getShiftDisplayName } from "@/lib/clock/shift-labels";
 import type { WorkDutyStatus } from "@/lib/clock/work-status";
-import { openManagementPage } from "@/lib/liff/open-management";
+import {
+  readStoredLiffAdminToken,
+  storeLiffAdminToken,
+} from "@/lib/liff/admin-session";
+import { CLINIC_ADMIN_EMAILS } from "@/lib/employee/access";
 
 type ClockType = "clock_in" | "clock_out";
 
@@ -41,6 +45,7 @@ interface ClockStatus {
   workDutyStatusLabel: string;
   reminders: ClockReminder[];
   today: string;
+  isClinicAdmin?: boolean;
 }
 
 interface ClockHomeTabProps {
@@ -49,6 +54,8 @@ interface ClockHomeTabProps {
   liffId?: string;
   appUrl?: string;
   isClinicAdmin: boolean;
+  adminAccessError?: string | null;
+  onAdminAccessRefresh?: () => void;
   mode: LiffMode;
   onModeChange: (mode: LiffMode) => void;
   onNavigate?: (tab: MobileTab) => void;
@@ -93,6 +100,8 @@ export function ClockHomeTab({
   liffId,
   appUrl,
   isClinicAdmin,
+  adminAccessError,
+  onAdminAccessRefresh,
   mode,
   onModeChange,
   onNavigate,
@@ -109,6 +118,15 @@ export function ClockHomeTab({
   const [clockSheetOpen, setClockSheetOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [loadingTarget, setLoadingTarget] = useState<string | null>(null);
+  const [unlocked, setUnlocked] = useState(false);
+  const [unlockEmail, setUnlockEmail] = useState<string>(CLINIC_ADMIN_EMAILS[0]);
+  const [unlockPassword, setUnlockPassword] = useState("");
+  const [unlocking, setUnlocking] = useState(false);
+  const [showUnlock, setShowUnlock] = useState(false);
+
+  useEffect(() => {
+    if (readStoredLiffAdminToken()) setUnlocked(true);
+  }, []);
 
   const loadStatus = useCallback(async () => {
     setStatusLoading(true);
@@ -182,6 +200,7 @@ export function ClockHomeTab({
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
       await loadStatus();
+      onAdminAccessRefresh?.();
       setMessage("身份綁定成功");
     } catch (err) {
       setError(err instanceof Error ? err.message : "綁定失敗");
@@ -234,9 +253,44 @@ export function ClockHomeTab({
     }
   }
 
+  async function handleUnlock(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    setUnlocking(true);
+    try {
+      const res = await fetch("/api/auth/mobile-admin", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          lineUserId,
+          email: unlockEmail,
+          password: unlockPassword,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "解鎖失敗");
+      if (data.token) storeLiffAdminToken(data.token);
+      setUnlocked(true);
+      setUnlockPassword("");
+      setShowUnlock(false);
+      setMessage("已解鎖管理員，可審核請假與異常打卡");
+      onModeChange("admin");
+      onAdminAccessRefresh?.();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "解鎖失敗");
+    } finally {
+      setUnlocking(false);
+    }
+  }
+
   function handleGridAction(action: GridAction) {
     if (action.type === "tab") {
-      onNavigate?.(action.tab);
+      if (!onNavigate) {
+        setError("無法開啟此功能，請重新整理頁面");
+        return;
+      }
+      onNavigate(action.tab);
       return;
     }
     if (action.type === "clock") {
@@ -245,7 +299,7 @@ export function ClockHomeTab({
       return;
     }
     if (action.type === "admin") {
-      openManagementPage(action.href, appUrl);
+      setError("此功能請改點上方圖示，會在 LINE 內開啟，不必另開網頁");
       return;
     }
     if (action.type === "settings") {
@@ -255,6 +309,7 @@ export function ClockHomeTab({
 
   const todayClocks = status?.todayClocks ?? [];
   const shiftStatuses = status?.shiftStatuses ?? [];
+  const canAdmin = isClinicAdmin || Boolean(status?.isClinicAdmin) || unlocked;
   const lastEvent = (() => {
     const events: { type: "in" | "out"; at: string; assignmentId?: string | null }[] = [];
     for (const c of todayClocks) {
@@ -360,12 +415,59 @@ export function ClockHomeTab({
             onLeave={() => onNavigate?.("leave")}
           />
 
-          <ModeTabs mode={mode} isClinicAdmin={isClinicAdmin} onChange={onModeChange} />
+          <ModeTabs
+            mode={mode}
+            isClinicAdmin={canAdmin}
+            onChange={onModeChange}
+            onLockedAdminClick={() => setShowUnlock(true)}
+          />
+          {(showUnlock || !canAdmin) && (
+            <form
+              onSubmit={handleUnlock}
+              className="rounded-2xl border-2 border-emerald-400 bg-white p-4 shadow-sm"
+            >
+              <p className="text-sm font-bold text-black">管理員解鎖</p>
+              <p className="mt-1 text-xs leading-relaxed text-black">
+                請用後台帳號 forget50@hotmail.com 登入。解鎖後可在 App 內審核請假、異常打卡與加班。
+              </p>
+              <label className="mt-3 block text-sm font-semibold text-black">
+                Email
+                <input
+                  type="email"
+                  required
+                  autoComplete="username"
+                  value={unlockEmail}
+                  onChange={(e) => setUnlockEmail(e.target.value)}
+                  className="mt-1 w-full rounded-xl border border-slate-800 px-3 py-3 text-sm text-black"
+                />
+              </label>
+              <label className="mt-3 block text-sm font-semibold text-black">
+                密碼
+                <input
+                  type="password"
+                  required
+                  autoComplete="current-password"
+                  value={unlockPassword}
+                  onChange={(e) => setUnlockPassword(e.target.value)}
+                  className="mt-1 w-full rounded-xl border border-slate-800 px-3 py-3 text-sm text-black"
+                />
+              </label>
+              <button
+                type="submit"
+                disabled={unlocking}
+                className="mt-3 min-h-11 w-full rounded-xl bg-emerald-600 text-sm font-semibold text-white disabled:opacity-50"
+              >
+                {unlocking ? "解鎖中…" : "解鎖管理員"}
+              </button>
+            </form>
+          )}
+          {adminAccessError && (
+            <p className="text-center text-xs text-red-700">{adminAccessError}</p>
+          )}
 
           {mode === "admin" && (
-            <p className="text-center text-xs leading-relaxed text-slate-600">
-              排班、薪資、審核以<strong className="font-semibold">電腦瀏覽器</strong>
-              為主要操作。電腦會開新分頁進入完整後台；手機則在目前畫面開啟。
+            <p className="text-center text-sm font-medium leading-relaxed text-slate-900">
+              請假、異常打卡、加班請點「待審中心」，不必另開網頁。排班管理會帶管理員身分開啟。
             </p>
           )}
 
@@ -400,6 +502,7 @@ export function ClockHomeTab({
           clinicName={status.clinic.name}
           employeeName={status.binding.employeeName}
           duty={duty}
+          workDate={status.today}
           shiftStatuses={status.shiftStatuses}
           gpsLoading={gpsLoading}
           gpsError={gpsError}

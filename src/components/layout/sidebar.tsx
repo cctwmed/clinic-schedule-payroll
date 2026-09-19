@@ -9,8 +9,8 @@ const navItems = [
   { href: "/", label: "總覽", icon: "🏠" },
   { href: "/employees", label: "員工管理", icon: "👥" },
   { href: "/schedules", label: "排班管理", icon: "📅" },
-  { href: "/leave", label: "特休管理", icon: "🏖️" },
-  { href: "/clock-records", label: "打卡紀錄", icon: "📍" },
+  { href: "/leave", label: "請假管理", icon: "🏖️" },
+  { href: "/clock-records", label: "打卡審核", icon: "📍" },
   { href: "/payroll", label: "薪資結算", icon: "💰" },
 ];
 
@@ -86,7 +86,7 @@ export function Sidebar() {
           aria-label="開啟選單"
           aria-expanded={open}
           onClick={() => setOpen(true)}
-          className="rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm font-semibold text-slate-800"
+          className="rounded-lg border border-slate-800 px-2.5 py-1.5 text-sm font-semibold text-black"
         >
           選單
         </button>

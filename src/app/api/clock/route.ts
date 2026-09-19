@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { resolveLiffAdminAccess } from "@/lib/employee/liff-admin";
+import { resolveLiffAdminAccess, stampKnownClinicAdmins } from "@/lib/employee/liff-admin";
+import { loadActiveLineBinding } from "@/lib/employee/load-liff-binding";
 import { supabase } from "@/lib/supabase";
 import { getDefaultClinic, taipeiToday } from "@/lib/clinic";
 import { DEFAULT_GEO_RADIUS_M } from "@/lib/geo/constants";
@@ -12,6 +13,10 @@ import {
   resolveWorkDutyStatus,
   workDutyStatusLabel,
 } from "@/lib/clock/work-status";
+import {
+  evaluateClockWindow,
+  formatClockWindowBlockMessage,
+} from "@/lib/clock/clock-window";
 import {
   evaluateEarlyPunch,
   formatEarlyPunchNote,
@@ -172,7 +177,7 @@ export async function POST(request: NextRequest) {
         match = resolveClockInAssignment(today, assignments, clocks, clockedAt);
       }
     } else if (clockType === "clock_out") {
-      match = resolveClockOutAssignment(assignments, clocks);
+      match = resolveClockOutAssignment(assignments, clocks, today);
     } else {
       match = {
         assignmentId: workAssignments[0]?.id ?? null,
@@ -188,6 +193,21 @@ export async function POST(request: NextRequest) {
     if (match.isLate) noteParts.push(`遲到 ${match.lateMinutes} 分鐘`);
 
     const expectedAtDate = match.expectedAt ? new Date(match.expectedAt) : null;
+    if (clockType === "clock_in" || clockType === "clock_out") {
+      const windowEval = evaluateClockWindow(clockedAt, expectedAtDate);
+      if (!windowEval.allowed && windowEval.earliestAt) {
+        return NextResponse.json(
+          {
+            error: formatClockWindowBlockMessage(
+              clockType,
+              windowEval.earliestAt,
+              windowEval.minutesUntilOpen
+            ),
+          },
+          { status: 400 }
+        );
+      }
+    }
     const earlyEval =
       clockType === "clock_in"
         ? evaluateEarlyPunch(clockType, clockedAt, expectedAtDate)
@@ -300,17 +320,11 @@ export async function GET(request: NextRequest) {
     const today = taipeiToday();
     const lookbackStart = addDaysTaipei(today, -7);
 
-    const [clinic, bindingResult] = await Promise.all([
+    await stampKnownClinicAdmins();
+    const [clinic, binding] = await Promise.all([
       getDefaultClinic(),
-      supabase
-        .from("employee_line_bindings")
-        .select("employee_id, employees(id, name, role, employee_no, is_clinic_admin)")
-        .eq("line_user_id", lineUserId)
-        .eq("is_active", true)
-        .maybeSingle(),
+      loadActiveLineBinding(lineUserId),
     ]);
-
-    const binding = bindingResult.data;
 
     let assignments: WorkAssignment[] = [];
     let recentAssignments: WorkAssignment[] = [];
@@ -318,12 +332,14 @@ export async function GET(request: NextRequest) {
     let recentClocks: ExistingClock[] = [];
     let nextAction: "clock_in" | "clock_out" | "done" = "clock_in";
     let isClinicAdmin = false;
+    let bindingEmployeeName: string | null = null;
 
     let employees: { id: string; name: string; employee_no: string }[] | null = null;
 
     if (binding?.employee_id) {
       const adminAccess = await resolveLiffAdminAccess(lineUserId, binding);
       isClinicAdmin = adminAccess.isClinicAdmin;
+      bindingEmployeeName = adminAccess.employeeName;
 
       const [assignTodayRes, assignRecentRes, clocksRes] = await Promise.all([
         supabase
@@ -345,7 +361,7 @@ export async function GET(request: NextRequest) {
         supabase
           .from("clock_records")
           .select(
-            "id, clock_type, clocked_at, validation, is_late, late_minutes, is_manually_corrected, assignment_id, note"
+            "id, clock_type, clocked_at, clock_date, validation, is_late, late_minutes, is_manually_corrected, assignment_id, note"
           )
           .eq("employee_id", binding.employee_id)
           .gte("clock_date", lookbackStart)
@@ -356,7 +372,9 @@ export async function GET(request: NextRequest) {
       assignments = mapAssignments(assignTodayRes.data ?? []);
       recentAssignments = mapAssignments(assignRecentRes.data ?? []);
       recentClocks = (clocksRes.data ?? []) as ExistingClock[];
-      todayClocks = recentClocks.filter((c) => c.clocked_at.startsWith(today));
+      todayClocks = ((clocksRes.data ?? []) as Array<ExistingClock & { clock_date?: string }>).filter(
+        (c) => c.clock_date === today
+      );
       nextAction = suggestNextClockAction(assignments, todayClocks);
     } else {
       const { data, error } = await supabase
@@ -391,7 +409,8 @@ export async function GET(request: NextRequest) {
       binding: binding
         ? {
             employeeId: binding.employee_id,
-            employeeName: getEmployeeName(binding.employees),
+            employeeName:
+              getEmployeeName(binding.employees) ?? bindingEmployeeName ?? "同仁",
           }
         : null,
       isClinicAdmin,

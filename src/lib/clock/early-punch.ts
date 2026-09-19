@@ -1,5 +1,7 @@
+import { CLOCK_EARLY_MINUTES } from "@/lib/clock/clock-window";
+
 /** 合理提早打卡緩衝（分鐘）：此時間內提早仍自動對齊班表，不標異常 */
-export const EARLY_PUNCH_BUFFER_MINUTES = 30;
+export const EARLY_PUNCH_BUFFER_MINUTES = CLOCK_EARLY_MINUTES;
 
 export interface EarlyPunchEvaluation {
   isEarly: boolean;

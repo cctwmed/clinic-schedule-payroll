@@ -12,7 +12,6 @@ import {
   FileCheck,
   LayoutGrid,
   MapPin,
-  Settings,
   Timer,
   Users,
   Wallet,
@@ -105,13 +104,14 @@ const EMPLOYEE_ITEMS: GridItem[] = [
   },
 ];
 
-function adminItems(base: string): GridItem[] {
+function adminItems(): GridItem[] {
   return [
     {
-      id: "review-ot",
-      label: "審核加班",
-      icon: AlarmClock,
-      action: { type: "admin", href: `${base}/clock-records` },
+      id: "review-inbox",
+      label: "待審中心",
+      icon: FileCheck,
+      action: { type: "tab", tab: "admin-inbox" },
+      accent: true,
       bgClass: "bg-emerald-50",
       iconClass: "text-emerald-600",
     },
@@ -119,7 +119,7 @@ function adminItems(base: string): GridItem[] {
       id: "review-leave",
       label: "審核請假",
       icon: FileCheck,
-      action: { type: "admin", href: `${base}/leave` },
+      action: { type: "tab", tab: "admin-inbox" },
       bgClass: "bg-sky-50",
       iconClass: "text-sky-600",
     },
@@ -127,15 +127,23 @@ function adminItems(base: string): GridItem[] {
       id: "review-abnormal",
       label: "異常審核",
       icon: AlertTriangle,
-      action: { type: "admin", href: `${base}/clock-records` },
+      action: { type: "tab", tab: "admin-inbox" },
       bgClass: "bg-amber-50",
       iconClass: "text-amber-600",
+    },
+    {
+      id: "review-ot",
+      label: "審核加班",
+      icon: AlarmClock,
+      action: { type: "tab", tab: "admin-inbox" },
+      bgClass: "bg-violet-50",
+      iconClass: "text-violet-600",
     },
     {
       id: "attendance",
       label: "出勤數據",
       icon: BarChart3,
-      action: { type: "admin", href: `${base}/clock-records` },
+      action: { type: "tab", tab: "admin-clocks" },
       bgClass: "bg-indigo-50",
       iconClass: "text-indigo-600",
     },
@@ -143,7 +151,7 @@ function adminItems(base: string): GridItem[] {
       id: "schedules",
       label: "排班管理",
       icon: CalendarDays,
-      action: { type: "admin", href: `${base}/schedules` },
+      action: { type: "tab", tab: "admin-schedule" },
       bgClass: "bg-violet-50",
       iconClass: "text-violet-600",
     },
@@ -151,7 +159,7 @@ function adminItems(base: string): GridItem[] {
       id: "payroll",
       label: "薪資統計",
       icon: Coins,
-      action: { type: "admin", href: `${base}/payroll` },
+      action: { type: "tab", tab: "admin-pay" },
       bgClass: "bg-teal-50",
       iconClass: "text-teal-600",
     },
@@ -159,17 +167,9 @@ function adminItems(base: string): GridItem[] {
       id: "employees",
       label: "同仁管理",
       icon: Users,
-      action: { type: "admin", href: `${base}/employees` },
+      action: { type: "tab", tab: "admin-people" },
       bgClass: "bg-blue-50",
       iconClass: "text-blue-600",
-    },
-    {
-      id: "settings",
-      label: "系統設定",
-      icon: Settings,
-      action: { type: "admin", href: `${base}/` },
-      bgClass: "bg-slate-50",
-      iconClass: "text-slate-600",
     },
   ];
 }
@@ -180,9 +180,8 @@ interface FunctionGridProps {
   onAction: (action: GridAction) => void;
 }
 
-export function FunctionGrid({ mode, appUrl, onAction }: FunctionGridProps) {
-  const base = appUrl?.replace(/\/$/, "") ?? "";
-  const items = mode === "admin" ? adminItems(base) : EMPLOYEE_ITEMS;
+export function FunctionGrid({ mode, onAction }: FunctionGridProps) {
+  const items = mode === "admin" ? adminItems() : EMPLOYEE_ITEMS;
 
   return (
     <section
@@ -196,7 +195,7 @@ export function FunctionGrid({ mode, appUrl, onAction }: FunctionGridProps) {
             key={item.id}
             type="button"
             onClick={() => onAction(item.action)}
-            className={`group flex flex-col items-center gap-2 rounded-2xl p-2 transition-transform duration-150 active:scale-95 ${
+            className={`group flex min-h-[5.5rem] touch-manipulation flex-col items-center gap-2 rounded-2xl p-2 transition-transform duration-150 active:scale-95 ${
               item.accent ? "ring-2 ring-emerald-200/80" : ""
             }`}
           >

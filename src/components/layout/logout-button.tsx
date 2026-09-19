@@ -9,6 +9,9 @@ export function LogoutButton() {
   async function handleLogout() {
     const supabase = createClient();
     await supabase.auth.signOut();
+    await fetch("/api/auth/liff-dashboard", { method: "DELETE", credentials: "include" }).catch(
+      () => {}
+    );
     router.push("/login");
     router.refresh();
   }

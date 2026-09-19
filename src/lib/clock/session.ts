@@ -130,15 +130,17 @@ export function resolveDefaultClockInLate(
 
 export function resolveClockOutAssignment(
   assignments: WorkAssignment[],
-  clocks: ExistingClock[]
+  clocks: ExistingClock[],
+  workDate?: string
 ): ClockMatchResult {
   const work = filterWorkAssignments(assignments);
+  const date = workDate ?? getTaipeiTimeParts(new Date()).date;
 
   for (const assignment of work) {
     const hasIn = hasClockForAssignment(clocks, assignment.id, "clock_in");
     const hasOut = hasClockForAssignment(clocks, assignment.id, "clock_out");
     if (hasIn && !hasOut) {
-      return buildClockMatchForAssignment(assignment, "clock_out", null);
+      return buildClockMatchForAssignment(assignment, "clock_out", date);
     }
   }
 
@@ -158,9 +160,11 @@ function buildClockMatchForAssignment(
   clockedAt?: Date
 ): ClockMatchResult {
   if (clockType === "clock_out") {
+    const date = workDate ?? getTaipeiTimeParts(clockedAt ?? new Date()).date;
+    const expectedAt = toTaipeiDateTime(date, assignment.expected_clock_out);
     return {
       assignmentId: assignment.id,
-      expectedAt: null,
+      expectedAt: expectedAt.toISOString(),
       isLate: false,
       lateMinutes: 0,
       shiftLabel: `${assignment.shift_name} ${assignment.expected_clock_out.slice(0, 5)}`,
@@ -254,7 +258,7 @@ export function suggestNextClockAction(
   clocks: ExistingClock[]
 ): "clock_in" | "clock_out" | "done" {
   const work = filterWorkAssignments(assignments);
-  // 必須依診別順序：早診上→早診下→晚診上→晚診下，不可跳打下一診上班。
+  // 必須依診別時間順序：該診上班→該診下班，不可跳打下一診。
   for (const a of work) {
     if (!hasClockForAssignment(clocks, a.id, "clock_in")) return "clock_in";
     if (!hasClockForAssignment(clocks, a.id, "clock_out")) return "clock_out";

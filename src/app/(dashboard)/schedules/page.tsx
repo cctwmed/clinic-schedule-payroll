@@ -32,8 +32,12 @@ export default async function SchedulesPage({ searchParams }: PageProps) {
           daysInMonth={data.daysInMonth}
           complianceIssues={data.complianceIssues}
           goldenConfig={data.goldenConfig}
+          sessionPattern={data.sessionPattern}
+          staffingPerSession={data.staffingPerSession}
+          sessionTimes={data.sessionTimes}
           closures={data.closures}
           publicHolidays={data.publicHolidays}
+          publishedSnapshot={data.publishedSnapshot}
         />
       </>
     );

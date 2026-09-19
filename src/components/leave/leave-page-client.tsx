@@ -119,16 +119,16 @@ export function LeavePageClient({
           <div className="flex items-center gap-2">
             <button
               onClick={() => changeMonth(-1)}
-              className="rounded-lg border border-slate-300 px-3 py-2 text-sm hover:bg-slate-50"
+              className="rounded-lg border border-slate-800 bg-white px-3 py-2 text-sm font-semibold text-black hover:bg-slate-100"
             >
               ← 上個月
             </button>
-            <span className="min-w-28 text-center text-sm font-semibold">
+            <span className="min-w-28 text-center text-sm font-semibold text-black">
               {year} 年 {month} 月
             </span>
             <button
               onClick={() => changeMonth(1)}
-              className="rounded-lg border border-slate-300 px-3 py-2 text-sm hover:bg-slate-50"
+              className="rounded-lg border border-slate-800 bg-white px-3 py-2 text-sm font-semibold text-black hover:bg-slate-100"
             >
               下個月 →
             </button>
@@ -175,12 +175,12 @@ export function LeavePageClient({
                       {r.total_hours} 小時{r.reason ? ` · ${r.reason}` : ""}
                     </p>
                   </div>
-                  <div className="flex gap-1">
+                  <div className="flex w-full gap-2 sm:w-auto">
                     <button
                       type="button"
                       disabled={isPending}
                       onClick={() => handleReview(r.id, false)}
-                      className="rounded-md px-2 py-1 text-slate-600 hover:bg-slate-100"
+                      className="min-h-11 flex-1 rounded-lg border border-slate-800 bg-white px-4 py-2 text-sm font-semibold text-black hover:bg-slate-100 sm:flex-none"
                     >
                       駁回
                     </button>
@@ -188,7 +188,7 @@ export function LeavePageClient({
                       type="button"
                       disabled={isPending}
                       onClick={() => handleReview(r.id, true)}
-                      className="rounded-md px-2 py-1 font-medium text-emerald-700 hover:bg-emerald-50"
+                      className="min-h-11 flex-1 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 sm:flex-none"
                     >
                       核准
                     </button>

@@ -13,6 +13,7 @@ import type {
 } from "@/types/schedule";
 import {
   ASSIGNABLE_CATEGORIES,
+  cellStaffIds,
   formatWorkDate,
   getDaysInMonth,
   OFF_DAY_CATEGORIES,
@@ -26,9 +27,16 @@ import {
   parseScheduleMeta,
   mergeScheduleMeta,
   normalizeClosureReason,
+  flattenAssignmentSnapshot,
+  normalizeSessionPattern,
+  clampStaffingPerSession,
+  readSessionPattern,
+  readStaffingPerSession,
   type GoldenScheduleConfig,
   type ClosureRecord,
   type ClosureReason,
+  type ClinicSessionPattern,
+  type SessionTimesConfig,
 } from "@/lib/schedules/golden-config";
 import { generateGoldenMonthSchedule } from "@/lib/schedules/golden-rotation";
 import { validateSameDayAssignment } from "@/lib/schedules/assignment-validation";
@@ -78,6 +86,17 @@ export async function fetchSchedulePageData(year: number, month: number) {
   const assignmentMap = buildAssignmentMap(assignments ?? []);
   const goldenConfig = parseGoldenConfig(schedule.note);
   const scheduleMeta = parseScheduleMeta(schedule.note);
+  const afternoonId =
+    ((shiftTypes ?? []) as ShiftType[]).find((s) => s.code === "AFTERNOON")?.id ?? "";
+  const hasAfternoonStaff = afternoonId
+    ? Object.values(assignmentMap).some(
+        (day) => cellStaffIds(day[afternoonId]).length > 0
+      )
+    : false;
+  const sessionPattern = hasAfternoonStaff
+    ? "three"
+    : readSessionPattern(scheduleMeta);
+  const staffingPerSession = readStaffingPerSession(scheduleMeta);
 
   const workShiftTypes = ((shiftTypes ?? []) as ShiftType[]).filter((s) =>
     ASSIGNABLE_CATEGORIES.includes(s.category)
@@ -104,8 +123,12 @@ export async function fetchSchedulePageData(year: number, month: number) {
     daysInMonth: getDaysInMonth(year, month),
     complianceIssues: [] as ComplianceIssue[],
     goldenConfig,
+    sessionPattern,
+    staffingPerSession,
+    sessionTimes: scheduleMeta.sessionTimes ?? goldenConfig?.sessionTimes ?? null,
     closures: scheduleMeta.closures ?? [],
     publicHolidays,
+    publishedSnapshot: scheduleMeta.publishedSnapshot ?? null,
   };
 }
 
@@ -172,7 +195,10 @@ function buildAssignmentMap(assignments: ShiftAssignment[]): DayAssignmentMap {
   const map: DayAssignmentMap = {};
   for (const a of assignments) {
     if (!map[a.work_date]) map[a.work_date] = {};
-    map[a.work_date][a.shift_type_id] = a.employee_id;
+    const current = map[a.work_date][a.shift_type_id] ?? [];
+    if (!current.includes(a.employee_id)) {
+      map[a.work_date][a.shift_type_id] = [...current, a.employee_id];
+    }
   }
   return map;
 }
@@ -252,7 +278,7 @@ export async function saveScheduleAssignment(
   scheduleId: string,
   workDate: string,
   shiftTypeId: string,
-  employeeId: string | null,
+  employeeId: string | string[] | null,
   expectedClockIn: string,
   expectedClockOut: string
 ) {
@@ -263,11 +289,27 @@ export async function saveScheduleAssignment(
     .single();
 
   if (scheduleError) return { success: false as const, error: scheduleError.message };
+
   if (schedule.status === "published") {
-    return { success: false as const, error: "已發布的班表無法直接修改，請先複製為新月份草稿" };
+    const snapResult = await ensurePublishedSnapshot(scheduleId);
+    if (!snapResult.ok) return { success: false as const, error: snapResult.error };
   }
 
-  if (!employeeId) {
+  const desired = cellStaffIds(employeeId);
+
+  const { data: existingRows, error: existingError } = await supabase
+    .from("shift_assignments")
+    .select("id, employee_id")
+    .eq("schedule_id", scheduleId)
+    .eq("work_date", workDate)
+    .eq("shift_type_id", shiftTypeId);
+
+  if (existingError) return { success: false as const, error: existingError.message };
+
+  const existing = existingRows ?? [];
+  const existingIds = existing.map((row) => row.employee_id);
+
+  if (desired.length === 0) {
     const { error } = await supabase
       .from("shift_assignments")
       .delete()
@@ -279,15 +321,8 @@ export async function saveScheduleAssignment(
     return { success: true as const };
   }
 
-  const conflict = await validateAssignmentConflict(
-    scheduleId,
-    workDate,
-    shiftTypeId,
-    employeeId
-  );
-  if (!conflict.ok) {
-    return { success: false as const, error: conflict.error };
-  }
+  const toRemove = existing.filter((row) => !desired.includes(row.employee_id));
+  const toAdd = desired.filter((id) => !existingIds.includes(id));
 
   const { data: shiftMeta } = await supabase
     .from("shift_types")
@@ -295,49 +330,250 @@ export async function saveScheduleAssignment(
     .eq("id", shiftTypeId)
     .maybeSingle();
 
-  const childCheck = await validateChildLaborNightShift(
-    employeeId,
-    expectedClockIn,
-    expectedClockOut,
-    shiftMeta?.code ?? ""
-  );
-  if (!childCheck.ok) {
-    return { success: false as const, error: childCheck.error };
+  for (const addId of toAdd) {
+    const conflict = await validateAssignmentConflict(
+      scheduleId,
+      workDate,
+      shiftTypeId,
+      addId
+    );
+    if (!conflict.ok) {
+      return { success: false as const, error: conflict.error };
+    }
+
+    const childCheck = await validateChildLaborNightShift(
+      addId,
+      expectedClockIn,
+      expectedClockOut,
+      shiftMeta?.code ?? ""
+    );
+    if (!childCheck.ok) {
+      return { success: false as const, error: childCheck.error };
+    }
   }
 
-  const { data: existing } = await supabase
-    .from("shift_assignments")
-    .select("id")
-    .eq("schedule_id", scheduleId)
-    .eq("work_date", workDate)
-    .eq("shift_type_id", shiftTypeId)
-    .maybeSingle();
+  if (toRemove.length > 0) {
+    const { error } = await supabase
+      .from("shift_assignments")
+      .delete()
+      .in(
+        "id",
+        toRemove.map((row) => row.id)
+      );
+    if (error) return { success: false as const, error: error.message };
+  }
 
-  if (existing) {
+  const keepIds = existing
+    .filter((row) => desired.includes(row.employee_id))
+    .map((row) => row.id);
+  if (keepIds.length > 0) {
     const { error } = await supabase
       .from("shift_assignments")
       .update({
-        employee_id: employeeId,
         expected_clock_in: expectedClockIn,
         expected_clock_out: expectedClockOut,
       })
-      .eq("id", existing.id);
-
-    if (error) return { success: false as const, error: error.message };
-  } else {
-    const { error } = await supabase.from("shift_assignments").insert({
-      schedule_id: scheduleId,
-      employee_id: employeeId,
-      shift_type_id: shiftTypeId,
-      work_date: workDate,
-      expected_clock_in: expectedClockIn,
-      expected_clock_out: expectedClockOut,
-      status: "scheduled",
-    });
-
+      .in("id", keepIds);
     if (error) return { success: false as const, error: error.message };
   }
 
+  if (toAdd.length > 0) {
+    const { error } = await supabase.from("shift_assignments").insert(
+      toAdd.map((id) => ({
+        schedule_id: scheduleId,
+        employee_id: id,
+        shift_type_id: shiftTypeId,
+        work_date: workDate,
+        expected_clock_in: expectedClockIn,
+        expected_clock_out: expectedClockOut,
+        status: "scheduled" as const,
+      }))
+    );
+    if (error) return { success: false as const, error: error.message };
+  }
+
+  return { success: true as const };
+}
+
+export async function applySessionPattern(
+  scheduleId: string,
+  pattern: ClinicSessionPattern
+) {
+  const next = normalizeSessionPattern(pattern);
+  const { data: schedule, error: scheduleError } = await supabase
+    .from("schedules")
+    .select("id, clinic_id, status, note")
+    .eq("id", scheduleId)
+    .single();
+
+  if (scheduleError || !schedule) {
+    return { success: false as const, error: scheduleError?.message ?? "找不到班表" };
+  }
+
+  if (schedule.status === "published") {
+    const snapResult = await ensurePublishedSnapshot(scheduleId);
+    if (!snapResult.ok) return { success: false as const, error: snapResult.error };
+  }
+
+  if (next === "three") {
+    const { data: afternoonType } = await supabase
+      .from("shift_types")
+      .select("id")
+      .eq("clinic_id", schedule.clinic_id)
+      .eq("code", "AFTERNOON")
+      .maybeSingle();
+    if (!afternoonType?.id) {
+      await applyClinicGoldenTemplate({ skipRevalidate: true });
+    }
+  }
+
+  if (next === "two") {
+    const { data: afternoonType } = await supabase
+      .from("shift_types")
+      .select("id")
+      .eq("clinic_id", schedule.clinic_id)
+      .eq("code", "AFTERNOON")
+      .maybeSingle();
+
+    if (afternoonType?.id) {
+      const { error } = await supabase
+        .from("shift_assignments")
+        .delete()
+        .eq("schedule_id", scheduleId)
+        .eq("shift_type_id", afternoonType.id);
+      if (error) return { success: false as const, error: error.message };
+    }
+  }
+
+  const currentGolden = parseGoldenConfig(schedule.note);
+  const patch: Parameters<typeof mergeScheduleMeta>[1] = { sessionPattern: next };
+  if (currentGolden) {
+    patch.golden = { ...currentGolden, sessionPattern: next };
+  }
+  const { error: updateError } = await supabase
+    .from("schedules")
+    .update({
+      note: mergeScheduleMeta(schedule.note, patch),
+    })
+    .eq("id", scheduleId);
+
+  if (updateError) return { success: false as const, error: updateError.message };
+  revalidatePath("/schedules");
+  return { success: true as const, sessionPattern: next };
+}
+
+export async function updateStaffingPerSession(
+  scheduleId: string,
+  staffingPerSession: number
+) {
+  const staffing = clampStaffingPerSession(staffingPerSession);
+  const { data: schedule, error: scheduleError } = await supabase
+    .from("schedules")
+    .select("id, note")
+    .eq("id", scheduleId)
+    .single();
+
+  if (scheduleError || !schedule) {
+    return { success: false as const, error: scheduleError?.message ?? "找不到班表" };
+  }
+
+  const currentGolden = parseGoldenConfig(schedule.note);
+  const patch: Parameters<typeof mergeScheduleMeta>[1] = {
+    staffingPerSession: staffing,
+  };
+  if (currentGolden) {
+    patch.golden = { ...currentGolden, staffingPerSession: staffing };
+  }
+  const { error } = await supabase
+    .from("schedules")
+    .update({
+      note: mergeScheduleMeta(schedule.note, patch),
+    })
+    .eq("id", scheduleId);
+
+  if (error) return { success: false as const, error: error.message };
+  revalidatePath("/schedules");
+  return { success: true as const, staffingPerSession: staffing };
+}
+
+function plannedHoursFromRange(clockIn: string, clockOut: string): number {
+  const [inH, inM] = clockIn.slice(0, 5).split(":").map(Number);
+  const [outH, outM] = clockOut.slice(0, 5).split(":").map(Number);
+  const start = (inH ?? 0) * 60 + (inM ?? 0);
+  const end = (outH ?? 0) * 60 + (outM ?? 0);
+  const minutes = end >= start ? end - start : end + 24 * 60 - start;
+  return Math.round((minutes / 60) * 100) / 100;
+}
+
+export async function updateSessionTimes(
+  scheduleId: string,
+  times: SessionTimesConfig
+) {
+  const { data: schedule, error: scheduleError } = await supabase
+    .from("schedules")
+    .select("id, clinic_id, status, note")
+    .eq("id", scheduleId)
+    .single();
+
+  if (scheduleError || !schedule) {
+    return { success: false as const, error: scheduleError?.message ?? "找不到班表" };
+  }
+
+  if (schedule.status === "published") {
+    const snapResult = await ensurePublishedSnapshot(scheduleId);
+    if (!snapResult.ok) return { success: false as const, error: snapResult.error };
+  }
+
+  const codes = ["MORNING", "AFTERNOON", "EVENING"] as const;
+  for (const code of codes) {
+    const range = times[code];
+    if (!range?.clockIn || !range?.clockOut) continue;
+
+    const { data: shiftType } = await supabase
+      .from("shift_types")
+      .select("id")
+      .eq("clinic_id", schedule.clinic_id)
+      .eq("code", code)
+      .maybeSingle();
+
+    if (!shiftType?.id) continue;
+
+    const hours = plannedHoursFromRange(range.clockIn, range.clockOut);
+    const { error: typeError } = await supabase
+      .from("shift_types")
+      .update({
+        default_clock_in: range.clockIn,
+        default_clock_out: range.clockOut,
+        planned_hours: hours,
+      })
+      .eq("id", shiftType.id);
+    if (typeError) return { success: false as const, error: typeError.message };
+
+    const { error: assignError } = await supabase
+      .from("shift_assignments")
+      .update({
+        expected_clock_in: range.clockIn,
+        expected_clock_out: range.clockOut,
+      })
+      .eq("schedule_id", scheduleId)
+      .eq("shift_type_id", shiftType.id);
+    if (assignError) return { success: false as const, error: assignError.message };
+  }
+
+  const currentGolden = parseGoldenConfig(schedule.note);
+  const patch: Parameters<typeof mergeScheduleMeta>[1] = { sessionTimes: times };
+  if (currentGolden) {
+    patch.golden = { ...currentGolden, sessionTimes: times };
+  }
+  const { error: noteError } = await supabase
+    .from("schedules")
+    .update({
+      note: mergeScheduleMeta(schedule.note, patch),
+    })
+    .eq("id", scheduleId);
+
+  if (noteError) return { success: false as const, error: noteError.message };
+  revalidatePath("/schedules");
   return { success: true as const };
 }
 
@@ -351,7 +587,8 @@ export async function markHalfDaySchedule(scheduleId: string, workDate: string) 
 
   if (scheduleError) return { success: false as const, error: scheduleError.message };
   if (schedule.status === "published") {
-    return { success: false as const, error: "已發布的班表無法直接修改" };
+    const snapResult = await ensurePublishedSnapshot(scheduleId);
+    if (!snapResult.ok) return { success: false as const, error: snapResult.error };
   }
 
   const { data: eveningType } = await supabase
@@ -378,14 +615,87 @@ export async function markHalfDaySchedule(scheduleId: string, workDate: string) 
   return { success: true as const };
 }
 
-export async function publishSchedule(scheduleId: string) {
-  const { error: scheduleError } = await supabase
+async function ensurePublishedSnapshot(
+  scheduleId: string
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const { data: schedule, error } = await supabase
     .from("schedules")
-    .select("id")
+    .select("id, note")
     .eq("id", scheduleId)
     .single();
 
-  if (scheduleError) return { success: false as const, error: scheduleError.message };
+  if (error || !schedule) {
+    return { ok: false, error: error?.message ?? "找不到班表" };
+  }
+
+  const meta = parseScheduleMeta(schedule.note);
+  if (meta.publishedSnapshot && Object.keys(meta.publishedSnapshot).length > 0) {
+    return { ok: true };
+  }
+
+  const { data: assignments, error: assignError } = await supabase
+    .from("shift_assignments")
+    .select("employee_id, work_date, shift_type_id")
+    .eq("schedule_id", scheduleId);
+
+  if (assignError) return { ok: false, error: assignError.message };
+
+  const snapshot = flattenAssignmentSnapshot(
+    buildAssignmentMap((assignments ?? []) as ShiftAssignment[])
+  );
+  const { error: updateError } = await supabase
+    .from("schedules")
+    .update({ note: mergeScheduleMeta(schedule.note, { publishedSnapshot: snapshot }) })
+    .eq("id", scheduleId);
+
+  if (updateError) return { ok: false, error: updateError.message };
+  return { ok: true };
+}
+
+export async function confirmPublishedAmendments(scheduleId: string) {
+  const { data: schedule, error } = await supabase
+    .from("schedules")
+    .select("id, note, status")
+    .eq("id", scheduleId)
+    .single();
+
+  if (error || !schedule) {
+    return { success: false as const, error: error?.message ?? "找不到班表" };
+  }
+
+  const { data: assignments, error: assignError } = await supabase
+    .from("shift_assignments")
+    .select("employee_id, work_date, shift_type_id")
+    .eq("schedule_id", scheduleId);
+
+  if (assignError) return { success: false as const, error: assignError.message };
+
+  const snapshot = flattenAssignmentSnapshot(
+    buildAssignmentMap((assignments ?? []) as ShiftAssignment[])
+  );
+  const { error: updateError } = await supabase
+    .from("schedules")
+    .update({ note: mergeScheduleMeta(schedule.note, { publishedSnapshot: snapshot }) })
+    .eq("id", scheduleId);
+
+  if (updateError) return { success: false as const, error: updateError.message };
+  revalidatePath("/schedules");
+  return { success: true as const };
+}
+
+export async function publishSchedule(scheduleId: string) {
+  const { data: schedule, error: scheduleError } = await supabase
+    .from("schedules")
+    .select("id, note")
+    .eq("id", scheduleId)
+    .single();
+
+  if (scheduleError || !schedule) {
+    return { success: false as const, error: scheduleError?.message ?? "找不到班表" };
+  }
+
+  const snapResult = await ensurePublishedSnapshot(scheduleId);
+  if (!snapResult.ok) return { success: false as const, error: snapResult.error };
 
   const { error: updateError } = await supabase
     .from("schedules")
@@ -702,9 +1012,12 @@ async function clearScheduleAssignments(scheduleId: string): Promise<string | nu
 
 export async function generateGoldenSchedule(
   scheduleId: string,
-  config: GoldenScheduleConfig
+  config: GoldenScheduleConfig,
+  options?: { allowPublished?: boolean }
 ) {
   const mode = config.mode === "triple" ? "triple" : "dual";
+  const sessionPattern = normalizeSessionPattern(config.sessionPattern);
+  const staffingPerSession = clampStaffingPerSession(config.staffingPerSession);
 
   if (config.employeeAId === config.employeeBId) {
     return { success: false as const, error: "員工 A 與 B 不可為同一人" };
@@ -728,8 +1041,12 @@ export async function generateGoldenSchedule(
     .single();
 
   if (scheduleError) return { success: false as const, error: scheduleError.message };
-  if (schedule.status === "published") {
+  if (schedule.status === "published" && !options?.allowPublished) {
     return { success: false as const, error: "已發布的班表無法重新產生" };
+  }
+  if (schedule.status === "published") {
+    const snapResult = await ensurePublishedSnapshot(scheduleId);
+    if (!snapResult.ok) return { success: false as const, error: snapResult.error };
   }
 
   await applyClinicGoldenTemplate({ skipRevalidate: true });
@@ -768,16 +1085,23 @@ export async function generateGoldenSchedule(
   }
 
   const rows = generated.flatMap((g) => {
+    if (sessionPattern === "two" && g.shiftCode === "AFTERNOON") return [];
     const shiftTypeId = codeToId[g.shiftCode];
     if (!shiftTypeId) return [];
+    const overlay =
+      g.shiftCode === "MORNING" ||
+      g.shiftCode === "AFTERNOON" ||
+      g.shiftCode === "EVENING"
+        ? config.sessionTimes?.[g.shiftCode]
+        : undefined;
     return [
       {
         schedule_id: scheduleId,
         employee_id: g.employeeId,
         shift_type_id: shiftTypeId,
         work_date: g.workDate,
-        expected_clock_in: g.expectedClockIn,
-        expected_clock_out: g.expectedClockOut,
+        expected_clock_in: overlay?.clockIn ?? g.expectedClockIn,
+        expected_clock_out: overlay?.clockOut ?? g.expectedClockOut,
         status: "scheduled" as const,
         note: g.label,
       },
@@ -801,12 +1125,18 @@ export async function generateGoldenSchedule(
     .from("schedules")
     .update({
       note: mergeScheduleMeta(schedule.note, {
+        sessionPattern,
+        staffingPerSession,
+        sessionTimes: config.sessionTimes,
         golden: {
           mode,
           employeeAId: config.employeeAId,
           employeeBId: config.employeeBId,
           employeeCId: mode === "triple" ? config.employeeCId : undefined,
           oddWeekTrackForA: config.oddWeekTrackForA ?? 1,
+          sessionPattern,
+          staffingPerSession,
+          sessionTimes: config.sessionTimes,
         },
       }),
     })
@@ -814,13 +1144,20 @@ export async function generateGoldenSchedule(
 
   revalidatePath("/schedules");
 
-  const assignmentMap: DayAssignmentMap = {};
-  for (const row of rows) {
-    if (!assignmentMap[row.work_date]) assignmentMap[row.work_date] = {};
-    assignmentMap[row.work_date][row.shift_type_id] = row.employee_id;
-  }
+  const assignmentMap = buildAssignmentMap(
+    rows.map((row) => ({
+      id: "",
+      schedule_id: row.schedule_id,
+      employee_id: row.employee_id,
+      shift_type_id: row.shift_type_id,
+      work_date: row.work_date,
+      expected_clock_in: row.expected_clock_in,
+      expected_clock_out: row.expected_clock_out,
+      status: row.status,
+    }))
+  );
 
-  return { success: true as const, count: rows.length, assignmentMap, mode };
+  return { success: true as const, count: rows.length, assignmentMap, mode, sessionPattern };
 }
 
 export async function bindLineUser(employeeId: string, lineUserId: string, displayName?: string) {

@@ -6,6 +6,7 @@ import type { MobileTab } from "@/components/liff/bottom-nav";
 import type { LiffMode } from "@/components/liff/mode-switcher";
 import { SubPageHeader } from "@/components/liff/sub-page-header";
 import { ClockHomeTab } from "@/components/liff/tabs/clock-home-tab";
+import { readStoredLiffAdminToken } from "@/lib/liff/admin-session";
 
 const ScheduleTab = dynamic(
   () => import("@/components/liff/tabs/schedule-tab").then((m) => m.ScheduleTab),
@@ -30,6 +31,26 @@ const ForgotClockTab = dynamic(
 const OvertimeTab = dynamic(
   () => import("@/components/liff/tabs/overtime-tab").then((m) => m.OvertimeTab),
   { loading: () => <TabLoading label="我要加班" /> }
+);
+const AdminInboxTab = dynamic(
+  () => import("@/components/liff/tabs/admin-inbox-tab").then((m) => m.AdminInboxTab),
+  { loading: () => <TabLoading label="待審中心" /> }
+);
+const AdminScheduleTab = dynamic(
+  () => import("@/components/liff/tabs/admin-schedule-tab").then((m) => m.AdminScheduleTab),
+  { loading: () => <TabLoading label="排班管理" /> }
+);
+const AdminPeopleTab = dynamic(
+  () => import("@/components/liff/tabs/admin-people-tab").then((m) => m.AdminPeopleTab),
+  { loading: () => <TabLoading label="同仁管理" /> }
+);
+const AdminPayTab = dynamic(
+  () => import("@/components/liff/tabs/admin-pay-tab").then((m) => m.AdminPayTab),
+  { loading: () => <TabLoading label="薪資統計" /> }
+);
+const AdminClocksTab = dynamic(
+  () => import("@/components/liff/tabs/admin-clocks-tab").then((m) => m.AdminClocksTab),
+  { loading: () => <TabLoading label="出勤數據" /> }
 );
 
 function TabLoading({ label }: { label: string }) {
@@ -70,6 +91,11 @@ const SUB_PAGE_TITLES: Partial<Record<MobileTab, string>> = {
   records: "出勤紀錄",
   forgot: "忘記/修正打卡",
   overtime: "我要加班",
+  "admin-inbox": "待審中心",
+  "admin-schedule": "排班管理",
+  "admin-people": "同仁管理",
+  "admin-pay": "薪資統計",
+  "admin-clocks": "出勤數據",
 };
 
 function readInitialTab(): MobileTab {
@@ -83,6 +109,11 @@ function readInitialTab(): MobileTab {
     "records",
     "forgot",
     "overtime",
+    "admin-inbox",
+    "admin-schedule",
+    "admin-people",
+    "admin-pay",
+    "admin-clocks",
   ];
   if (tab && allowed.includes(tab as MobileTab)) return tab as MobileTab;
   return "clock";
@@ -109,6 +140,7 @@ export function MobileApp({ liffId, appUrl }: MobileAppProps) {
   const [lineUserId, setLineUserId] = useState<string | null>(null);
   const [displayName, setDisplayName] = useState("");
   const [isClinicAdmin, setIsClinicAdmin] = useState(false);
+  const [adminAccessError, setAdminAccessError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [outsideLine, setOutsideLine] = useState(false);
   const [sdkReady, setSdkReady] = useState(false);
@@ -198,19 +230,33 @@ export function MobileApp({ liffId, appUrl }: MobileAppProps) {
     };
   }, [liffId, sdkReady]);
 
-  useEffect(() => {
-    if (phase !== "ready" || !lineUserId) return;
-    fetch(`/api/mobile/me?lineUserId=${encodeURIComponent(lineUserId)}`)
+  const refreshAdminAccess = useCallback(() => {
+    if (!lineUserId) return;
+    const token = readStoredLiffAdminToken();
+    const params = new URLSearchParams({ lineUserId });
+    if (token) params.set("liff_admin", token);
+    fetch(`/api/mobile/me?${params.toString()}`, {
+      credentials: "include",
+      headers: token ? { "x-liff-admin": token } : undefined,
+    })
       .then(async (res) => {
         const data = await res.json();
-        if (res.ok) setIsClinicAdmin(Boolean(data.isClinicAdmin));
+        if (!res.ok) {
+          setAdminAccessError(data.error ?? "無法確認管理員權限");
+          return;
+        }
+        setAdminAccessError(null);
+        setIsClinicAdmin(Boolean(data.isClinicAdmin));
       })
-      .catch(() => {});
-  }, [phase, lineUserId]);
+      .catch(() => {
+        setAdminAccessError("無法確認管理員權限，請稍後再試");
+      });
+  }, [lineUserId]);
 
   useEffect(() => {
-    if (!isClinicAdmin && mode === "admin") setMode("employee");
-  }, [isClinicAdmin, mode]);
+    if (phase !== "ready" || !lineUserId) return;
+    refreshAdminAccess();
+  }, [phase, lineUserId, refreshAdminAccess]);
 
   const goHome = () => setTab("clock");
   const goBind = () => setTab("clock");
@@ -261,6 +307,8 @@ export function MobileApp({ liffId, appUrl }: MobileAppProps) {
           liffId={liffId}
           appUrl={appUrl}
           isClinicAdmin={isClinicAdmin}
+          adminAccessError={adminAccessError}
+          onAdminAccessRefresh={refreshAdminAccess}
           mode={mode}
           onModeChange={setMode}
           onNavigate={setTab}
@@ -283,6 +331,16 @@ export function MobileApp({ liffId, appUrl }: MobileAppProps) {
           return <ForgotClockTab lineUserId={lineUserId} onGoBind={goBind} />;
         case "overtime":
           return <OvertimeTab lineUserId={lineUserId} onGoBind={goBind} />;
+        case "admin-inbox":
+          return <AdminInboxTab lineUserId={lineUserId} />;
+        case "admin-schedule":
+          return <AdminScheduleTab lineUserId={lineUserId} />;
+        case "admin-people":
+          return <AdminPeopleTab lineUserId={lineUserId} />;
+        case "admin-pay":
+          return <AdminPayTab lineUserId={lineUserId} />;
+        case "admin-clocks":
+          return <AdminClocksTab lineUserId={lineUserId} />;
         default:
           return null;
       }
@@ -294,7 +352,7 @@ export function MobileApp({ liffId, appUrl }: MobileAppProps) {
         {subPage}
       </div>
     );
-  }, [tab, mode, phase, lineUserId, displayName, liffId, error, appUrl, isClinicAdmin]);
+  }, [tab, mode, phase, lineUserId, displayName, liffId, error, appUrl, isClinicAdmin, adminAccessError, refreshAdminAccess]);
 
   return (
     <div className="mx-auto min-h-screen max-w-md bg-gradient-to-b from-sky-50 via-slate-50 to-slate-100">

@@ -20,6 +20,42 @@ export async function countPendingEarlyAbnormal(clinicId?: string): Promise<numb
   return count ?? 0;
 }
 
+export interface EarlyAbnormalRow {
+  id: string;
+  employee_name: string;
+  clocked_at: string;
+  early_minutes: number;
+}
+
+export async function listPendingEarlyAbnormal(
+  clinicId?: string
+): Promise<EarlyAbnormalRow[]> {
+  const id = clinicId ?? (await getDefaultClinic()).id;
+  const { data, error } = await supabase
+    .from("clock_records")
+    .select("id, clocked_at, early_minutes, employees!inner(clinic_id, name)")
+    .eq("employees.clinic_id", id)
+    .eq("clock_type", "clock_in")
+    .eq("is_early_abnormal", true)
+    .order("clocked_at", { ascending: false })
+    .limit(50);
+
+  if (error) {
+    if (error.message.includes("is_early_abnormal")) return [];
+    throw new Error(error.message);
+  }
+
+  return (data ?? []).map((row) => {
+    const emp = Array.isArray(row.employees) ? row.employees[0] : row.employees;
+    return {
+      id: String(row.id),
+      employee_name: (emp as { name?: string } | null)?.name ?? "同仁",
+      clocked_at: String(row.clocked_at),
+      early_minutes: Number(row.early_minutes ?? 0),
+    };
+  });
+}
+
 export async function setEarlyWorkApproval(input: {
   recordId: string;
   approved: boolean;

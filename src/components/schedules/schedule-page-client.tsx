@@ -6,12 +6,16 @@ import { DashboardHeader } from "@/components/layout/sidebar";
 import { ComplianceAlertList } from "@/components/compliance/compliance-alert-list";
 import {
   applyClinicGoldenTemplate,
+  applySessionPattern,
+  confirmPublishedAmendments,
   fetchScheduleComplianceIssues,
   generateGoldenSchedule,
   markClinicClosureDay,
   markHalfDaySchedule,
   publishSchedule,
   saveScheduleAssignment,
+  updateSessionTimes,
+  updateStaffingPerSession,
 } from "@/app/(dashboard)/schedules/actions";
 import type { PublicHoliday } from "@/lib/holidays/taiwan-public-holidays";
 import type { ComplianceIssue } from "@/lib/compliance/types";
@@ -23,13 +27,20 @@ import type {
   ClosureRecord,
   ClosureReason,
   ScheduleRotationMode,
+  ClinicSessionPattern,
+  SessionTimesConfig,
 } from "@/lib/schedules/golden-config";
 import {
   CLOSURE_REASON_LABELS,
   CLOSURE_REASON_PAY_HINTS,
   SCHEDULE_MODE_OPTIONS,
+  SESSION_PATTERN_OPTIONS,
+  MAX_NURSES_PER_SESSION,
   normalizeClosureReason,
   normalizeScheduleMode,
+  normalizeSessionPattern,
+  isPublishedAmendment,
+  type PublishedAssignmentSnapshot,
 } from "@/lib/schedules/golden-config";
 import { isTaiwanPublicHoliday } from "@/lib/holidays/taiwan-public-holidays";
 import { displayJobTitle } from "@/types/employee";
@@ -41,6 +52,7 @@ import type {
 } from "@/types/schedule";
 import {
   SCHEDULE_STATUS_LABELS,
+  cellStaffIds,
   formatWorkDate,
   weekdayLabel,
 } from "@/types/schedule";
@@ -58,8 +70,12 @@ interface SchedulePageClientProps {
   daysInMonth: number;
   complianceIssues: ComplianceIssue[];
   goldenConfig: GoldenScheduleConfig | null;
+  sessionPattern: ClinicSessionPattern;
+  staffingPerSession: number;
+  sessionTimes: SessionTimesConfig | null;
   closures: ClosureRecord[];
   publicHolidays: PublicHoliday[];
+  publishedSnapshot?: PublishedAssignmentSnapshot | null;
 }
 
 export function SchedulePageClient({
@@ -74,8 +90,12 @@ export function SchedulePageClient({
   daysInMonth,
   complianceIssues: initialCompliance,
   goldenConfig,
+  sessionPattern: initialPattern,
+  staffingPerSession: initialStaffing,
+  sessionTimes: initialTimes,
   closures: initialClosures,
   publicHolidays,
+  publishedSnapshot = null,
 }: SchedulePageClientProps) {
   const router = useRouter();
   // 直接用 props，避免軟導覽後 useState 初始值卡住
@@ -94,6 +114,28 @@ export function SchedulePageClient({
   const [employeeCId, setEmployeeCId] = useState(goldenConfig?.employeeCId ?? "");
   const [oddWeekTrackForA, setOddWeekTrackForA] = useState<1 | 2>(
     goldenConfig?.oddWeekTrackForA ?? 1
+  );
+  const [sessionPattern, setSessionPattern] = useState<ClinicSessionPattern>(
+    normalizeSessionPattern(initialPattern)
+  );
+  const [staffingPerSession, setStaffingPerSession] = useState(initialStaffing);
+  const [morningIn, setMorningIn] = useState(
+    initialTimes?.MORNING?.clockIn ?? GOLDEN_SCHEDULE.MORNING_IN
+  );
+  const [morningOut, setMorningOut] = useState(
+    initialTimes?.MORNING?.clockOut ?? GOLDEN_SCHEDULE.MORNING_OUT
+  );
+  const [afternoonIn, setAfternoonIn] = useState(
+    initialTimes?.AFTERNOON?.clockIn ?? GOLDEN_SCHEDULE.AFTERNOON_IN
+  );
+  const [afternoonOut, setAfternoonOut] = useState(
+    initialTimes?.AFTERNOON?.clockOut ?? GOLDEN_SCHEDULE.AFTERNOON_OUT
+  );
+  const [eveningIn, setEveningIn] = useState(
+    initialTimes?.EVENING?.clockIn ?? GOLDEN_SCHEDULE.EVENING_IN
+  );
+  const [eveningOut, setEveningOut] = useState(
+    initialTimes?.EVENING?.clockOut ?? GOLDEN_SCHEDULE.EVENING_OUT
   );
   const [closureDate, setClosureDate] = useState("");
   const [closureReason, setClosureReason] = useState<ClosureReason>("voluntary");
@@ -114,6 +156,14 @@ export function SchedulePageClient({
     setEmployeeBId(goldenConfig?.employeeBId ?? "");
     setEmployeeCId(goldenConfig?.employeeCId ?? "");
     setOddWeekTrackForA(goldenConfig?.oddWeekTrackForA ?? 1);
+    setSessionPattern(normalizeSessionPattern(initialPattern));
+    setStaffingPerSession(initialStaffing);
+    setMorningIn(initialTimes?.MORNING?.clockIn ?? GOLDEN_SCHEDULE.MORNING_IN);
+    setMorningOut(initialTimes?.MORNING?.clockOut ?? GOLDEN_SCHEDULE.MORNING_OUT);
+    setAfternoonIn(initialTimes?.AFTERNOON?.clockIn ?? GOLDEN_SCHEDULE.AFTERNOON_IN);
+    setAfternoonOut(initialTimes?.AFTERNOON?.clockOut ?? GOLDEN_SCHEDULE.AFTERNOON_OUT);
+    setEveningIn(initialTimes?.EVENING?.clockIn ?? GOLDEN_SCHEDULE.EVENING_IN);
+    setEveningOut(initialTimes?.EVENING?.clockOut ?? GOLDEN_SCHEDULE.EVENING_OUT);
     setIsNavigating(false);
     setPendingCell(null);
   }, [schedule.id, year, month]); // eslint-disable-line react-hooks/exhaustive-deps -- 僅在換月／換班表時同步伺服器資料
@@ -158,9 +208,43 @@ export function SchedulePageClient({
   );
 
   const isPublished = schedule.status === "published";
+  const amendmentCount = useMemo(() => {
+    if (!isPublished || !publishedSnapshot) return 0;
+    let count = 0;
+    const seen = new Set<string>();
+    for (const [workDate, shifts] of Object.entries(assignmentMap)) {
+      for (const [shiftId, employeeId] of Object.entries(shifts)) {
+        const key = `${workDate}:${shiftId}`;
+        seen.add(key);
+        if (isPublishedAmendment(publishedSnapshot, workDate, shiftId, employeeId)) {
+          count += 1;
+        }
+      }
+    }
+    for (const key of Object.keys(publishedSnapshot)) {
+      if (seen.has(key)) continue;
+      const [workDate, shiftId] = key.split(":");
+      if (workDate && shiftId) count += 1;
+    }
+    return count;
+  }, [assignmentMap, isPublished, publishedSnapshot]);
+
+  function handleConfirmAmendments() {
+    startTransition(async () => {
+      const result = await confirmPublishedAmendments(schedule.id);
+      setMessage(result.success ? "已將目前班表視為確認版本，紅字已清除" : result.error);
+      if (result.success) router.refresh();
+    });
+  }
+
   const allColumns = useMemo(
-    () => [...shiftTypes, ...offDayShiftTypes],
-    [shiftTypes, offDayShiftTypes]
+    () => [
+      ...shiftTypes.filter(
+        (shift) => sessionPattern === "three" || shift.code !== "AFTERNOON"
+      ),
+      ...offDayShiftTypes,
+    ],
+    [shiftTypes, offDayShiftTypes, sessionPattern]
   );
   const legend = getRotationLegend(oddWeekTrackForA, rotationMode);
   const days = useMemo(
@@ -183,12 +267,10 @@ export function SchedulePageClient({
     router.push(`/schedules?year=${newYear}&month=${newMonth}`);
   }
 
-  async function handleAssign(workDate: string, shift: ShiftType, employeeId: string) {
-    if (isPublished) return;
-
+  async function handleAssign(workDate: string, shift: ShiftType, employeeIds: string[]) {
     const cellKey = `${workDate}:${shift.id}`;
-    const prevValue = assignmentMap[workDate]?.[shift.id] ?? "";
-    const value = employeeId || null;
+    const prevValue = cellStaffIds(assignmentMap[workDate]?.[shift.id]);
+    const value = cellStaffIds(employeeIds);
 
     setAssignmentMap((prev) => ({
       ...prev,
@@ -209,14 +291,14 @@ export function SchedulePageClient({
       if (!result.success) {
         setAssignmentMap((prev) => ({
           ...prev,
-          [workDate]: { ...prev[workDate], [shift.id]: prevValue || null },
+          [workDate]: { ...prev[workDate], [shift.id]: prevValue },
         }));
         setMessage(result.error ?? "儲存失敗");
       }
     } catch (err) {
       setAssignmentMap((prev) => ({
         ...prev,
-        [workDate]: { ...prev[workDate], [shift.id]: prevValue || null },
+        [workDate]: { ...prev[workDate], [shift.id]: prevValue },
       }));
       setMessage(err instanceof Error ? err.message : "儲存失敗");
     } finally {
@@ -272,21 +354,19 @@ export function SchedulePageClient({
   }
 
   function handleRowHalfDay(workDate: string) {
-    if (isPublished) {
-      setMessage("已發布班表無法直接修改，請複製為新月份草稿");
-      return;
-    }
     if (!eveningShiftId) {
       setMessage("找不到晚診班別");
       return;
     }
     if (!confirm(`確定 ${workDate} 改為只看早診？\n將清除該日所有晚診排班。`)) return;
 
-    const prevEvening = assignmentMap[workDate]?.[eveningShiftId] ?? null;
+    const prevEvening = cellStaffIds(
+      eveningShiftId ? assignmentMap[workDate]?.[eveningShiftId] : []
+    );
 
     setAssignmentMap((prev) => ({
       ...prev,
-      [workDate]: { ...prev[workDate], [eveningShiftId]: null },
+      [workDate]: { ...prev[workDate], [eveningShiftId]: [] },
     }));
 
     startTransition(async () => {
@@ -348,9 +428,14 @@ export function SchedulePageClient({
     }
     const modeLabel =
       SCHEDULE_MODE_OPTIONS.find((o) => o.id === rotationMode)?.label ?? rotationMode;
+    const patternLabel =
+      SESSION_PATTERN_OPTIONS.find((o) => o.id === sessionPattern)?.shortLabel ?? "兩段班";
+    const publishedHint = isPublished
+      ? "\n此月已發布，產生後會整月覆蓋，打卡改依新班表。"
+      : "";
     if (
       !confirm(
-        `確定為 ${year} 年 ${month} 月一鍵產生班表？\n模式：${modeLabel}\n現有草稿排班將被覆蓋。`
+        `確定為 ${year} 年 ${month} 月一鍵產生班表？\n開診：${patternLabel}\n輪替：${modeLabel}\n現有排班將被覆蓋。${publishedHint}`
       )
     ) {
       return;
@@ -358,13 +443,24 @@ export function SchedulePageClient({
 
     startTransition(async () => {
       try {
-        const result = await generateGoldenSchedule(schedule.id, {
-          mode: rotationMode,
-          employeeAId,
-          employeeBId,
-          employeeCId: rotationMode === "triple" ? employeeCId : undefined,
-          oddWeekTrackForA,
-        });
+        const result = await generateGoldenSchedule(
+          schedule.id,
+          {
+            mode: rotationMode,
+            employeeAId,
+            employeeBId,
+            employeeCId: rotationMode === "triple" ? employeeCId : undefined,
+            oddWeekTrackForA,
+            sessionPattern,
+            staffingPerSession,
+            sessionTimes: {
+              MORNING: { clockIn: morningIn, clockOut: morningOut },
+              AFTERNOON: { clockIn: afternoonIn, clockOut: afternoonOut },
+              EVENING: { clockIn: eveningIn, clockOut: eveningOut },
+            },
+          },
+          { allowPublished: isPublished }
+        );
         if (!result.success) {
           setMessage(result.error);
           return;
@@ -373,7 +469,7 @@ export function SchedulePageClient({
           setAssignmentMap(result.assignmentMap);
         }
         setMessage(
-          `已產生 ${result.count} 筆排班（${modeLabel}）`
+          `已產生 ${result.count} 筆排班（${patternLabel} · ${modeLabel}）`
         );
         router.refresh();
       } catch (err) {
@@ -467,6 +563,55 @@ export function SchedulePageClient({
     });
   }
 
+  function handleApplySessionPattern(next: ClinicSessionPattern) {
+    const pattern = normalizeSessionPattern(next);
+    if (pattern === sessionPattern) return;
+    const label =
+      SESSION_PATTERN_OPTIONS.find((o) => o.id === pattern)?.label ?? pattern;
+    const extra =
+      pattern === "two"
+        ? "\n將清除本月所有午診排班，打卡改為早／晚兩組。"
+        : "\n會顯示午診欄，該診人員需另外排入；打卡改為早／午／晚三組。";
+    if (!confirm(`確定將 ${year} 年 ${month} 月改為${label}？${extra}`)) {
+      return;
+    }
+    startTransition(async () => {
+      const result = await applySessionPattern(schedule.id, pattern);
+      if (!result.success) {
+        setMessage(result.error);
+        return;
+      }
+      setSessionPattern(pattern);
+      setMessage(`本月已改為${label}`);
+      router.refresh();
+    });
+  }
+
+  function handleStaffingChange(next: number) {
+    startTransition(async () => {
+      const result = await updateStaffingPerSession(schedule.id, next);
+      if (!result.success) {
+        setMessage(result.error);
+        return;
+      }
+      setStaffingPerSession(result.staffingPerSession);
+      setMessage(`每診最多可排 ${result.staffingPerSession} 人`);
+    });
+  }
+
+  function handleSaveSessionTimes() {
+    startTransition(async () => {
+      const times: SessionTimesConfig = {
+        MORNING: { clockIn: morningIn, clockOut: morningOut },
+        AFTERNOON: { clockIn: afternoonIn, clockOut: afternoonOut },
+        EVENING: { clockIn: eveningIn, clockOut: eveningOut },
+      };
+      const result = await updateSessionTimes(schedule.id, times);
+      setMessage(result.success ? "診別時間已更新，本月打卡窗口會跟著改" : result.error);
+      if (result.success) router.refresh();
+    });
+  }
+
   function employeeLabel(emp: ScheduleEmployee) {
     const title = displayJobTitle(emp.job_title, "nurse");
     return title ? `${emp.name}（${title}）` : emp.name;
@@ -478,18 +623,18 @@ export function SchedulePageClient({
     <>
       <DashboardHeader
         title="排班管理"
-        description={`${clinic.name} — 快速排班（雙人／三人模式 · 08:20 到 · 08:30 開診）`}
+        description={`${clinic.name} — 目前暫定兩段班，可改三段班；每診可排 1～6 人`}
         action={
           <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
               onClick={() => changeMonth(-1)}
               disabled={isNavigating}
-              className="rounded-lg border border-slate-300 px-3 py-2 text-sm hover:bg-slate-50 disabled:opacity-60"
+              className="rounded-lg border border-slate-800 bg-white px-3 py-2 text-sm font-semibold text-black hover:bg-slate-100 disabled:opacity-60"
             >
               ← 上個月
             </button>
-            <span className="min-w-28 text-center text-sm font-semibold text-slate-800">
+            <span className="min-w-28 text-center text-sm font-semibold text-black">
               {year} 年 {month} 月
               {isNavigating ? "…" : ""}
             </span>
@@ -497,7 +642,7 @@ export function SchedulePageClient({
               type="button"
               onClick={() => changeMonth(1)}
               disabled={isNavigating}
-              className="rounded-lg border border-slate-300 px-3 py-2 text-sm hover:bg-slate-50 disabled:opacity-60"
+              className="rounded-lg border border-slate-800 bg-white px-3 py-2 text-sm font-semibold text-black hover:bg-slate-100 disabled:opacity-60"
             >
               下個月 →
             </button>
@@ -511,11 +656,118 @@ export function SchedulePageClient({
                 確認發布班表
               </button>
             )}
+            {isPublished && amendmentCount > 0 && (
+              <button
+                type="button"
+                onClick={handleConfirmAmendments}
+                disabled={busy}
+                className="rounded-lg border border-red-400 px-4 py-2 text-sm font-medium text-red-700 hover:bg-red-50 disabled:opacity-60"
+              >
+                確認變更（清除紅字）
+              </button>
+            )}
           </div>
         }
       />
 
       <div className="space-y-4 p-6">
+        {isPublished && (
+          <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-900">
+            已發布班表仍可修改；<span className="font-semibold">紅字格子</span>
+            代表「發布後有改過」。打卡與計薪以目前班表為準。
+            {amendmentCount > 0 ? ` 目前有 ${amendmentCount} 格變更。` : " 目前沒有發布後變更。"}
+          </div>
+        )}
+        <div className="rounded-xl border-2 border-emerald-400 bg-emerald-50 p-4">
+          <p className="text-base font-bold text-black">一診可排多人（1～6 位護理師）</p>
+          <p className="mt-1 text-sm leading-relaxed text-black">
+            目前暫定兩段班（早＋晚）。之後若改三段班，這裡一鍵切換；午診時間可改。
+            每個診別格子可加第 2～6 人：先把「一診可排幾人」調高，再按格子裡的「＋ 加入護理師」。
+            打卡會跟著班表：兩段兩組上下班、三段三組。
+          </p>
+          <div className="mt-3 flex flex-wrap items-end gap-3">
+            <div>
+              <label className="mb-1 block text-sm font-semibold text-black">開診結構</label>
+              <select
+                value={sessionPattern}
+                onChange={(e) =>
+                  handleApplySessionPattern(e.target.value as ClinicSessionPattern)
+                }
+                disabled={busy}
+                className="min-w-56 rounded-lg border border-slate-800 bg-white px-3 py-2 text-sm text-black"
+              >
+                {SESSION_PATTERN_OPTIONS.map((opt) => (
+                  <option key={opt.id} value={opt.id}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="mb-1 block text-sm font-semibold text-black">
+                一診可排幾人（1～6）
+              </label>
+              <select
+                value={staffingPerSession}
+                onChange={(e) => handleStaffingChange(Number(e.target.value))}
+                disabled={busy}
+                className="rounded-lg border border-slate-800 bg-white px-3 py-2 text-sm font-semibold text-black"
+              >
+                {Array.from({ length: MAX_NURSES_PER_SESSION }, (_, i) => i + 1).map((n) => (
+                  <option key={n} value={n}>
+                    {n} 人
+                  </option>
+                ))}
+              </select>
+            </div>
+            {staffingPerSession < MAX_NURSES_PER_SESSION && (
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => handleStaffingChange(MAX_NURSES_PER_SESSION)}
+                className="rounded-lg border border-slate-800 bg-white px-3 py-2 text-sm font-semibold text-black hover:bg-slate-100 disabled:opacity-60"
+              >
+                改為最多 6 人
+              </button>
+            )}
+          </div>
+          <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+            <TimeRangeField
+              label="早診"
+              start={morningIn}
+              end={morningOut}
+              onStart={setMorningIn}
+              onEnd={setMorningOut}
+            />
+            {sessionPattern === "three" && (
+              <TimeRangeField
+                label="午診"
+                start={afternoonIn}
+                end={afternoonOut}
+                onStart={setAfternoonIn}
+                onEnd={setAfternoonOut}
+              />
+            )}
+            <TimeRangeField
+              label="晚診"
+              start={eveningIn}
+              end={eveningOut}
+              onStart={setEveningIn}
+              onEnd={setEveningOut}
+            />
+            <div className="flex items-end">
+              <button
+                type="button"
+                onClick={handleSaveSessionTimes}
+                disabled={busy}
+                className="rounded-lg bg-emerald-700 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-800 disabled:opacity-60"
+              >
+                儲存診別時間
+              </button>
+            </div>
+          </div>
+        </div>
+
         <div className="rounded-xl border border-amber-200 bg-amber-50/80 p-4 text-sm text-amber-900">
           <p className="font-semibold">快速排班模式</p>
           <p className="mt-1 text-amber-800">
@@ -573,7 +825,7 @@ export function SchedulePageClient({
               onChange={(e) =>
                 setRotationMode(normalizeScheduleMode(e.target.value as ScheduleRotationMode))
               }
-              disabled={isPublished || isPending}
+              disabled={isPending}
               className="min-w-56 rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-800"
             >
               {SCHEDULE_MODE_OPTIONS.map((opt) => (
@@ -590,7 +842,7 @@ export function SchedulePageClient({
             <select
               value={employeeAId}
               onChange={(e) => setEmployeeAId(e.target.value)}
-              disabled={isPublished || isPending}
+              disabled={isPending}
               className="min-w-40 rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-800"
             >
               <option value="">— 請選擇 —</option>
@@ -608,7 +860,7 @@ export function SchedulePageClient({
             <select
               value={employeeBId}
               onChange={(e) => setEmployeeBId(e.target.value)}
-              disabled={isPublished || isPending}
+              disabled={isPending}
               className="min-w-40 rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-800"
             >
               <option value="">— 請選擇 —</option>
@@ -627,7 +879,7 @@ export function SchedulePageClient({
               <select
                 value={employeeCId}
                 onChange={(e) => setEmployeeCId(e.target.value)}
-                disabled={isPublished || isPending}
+                disabled={isPending}
                 className="min-w-40 rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-800"
               >
                 <option value="">— 請選擇 —</option>
@@ -647,7 +899,7 @@ export function SchedulePageClient({
               <select
                 value={oddWeekTrackForA}
                 onChange={(e) => setOddWeekTrackForA(Number(e.target.value) as 1 | 2)}
-                disabled={isPublished || isPending}
+                disabled={isPending}
                 className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-800"
               >
                 <option value={1}>軌道一（週三班：週三早診、週五早午、六日大休）</option>
@@ -655,8 +907,7 @@ export function SchedulePageClient({
               </select>
             </div>
           )}
-          {!isPublished && (
-            <>
+          <>
               <button
                 type="button"
                 onClick={handleApplyGoldenTemplate}
@@ -677,7 +928,6 @@ export function SchedulePageClient({
                 {isPending ? "產生中…" : "一鍵產生黃金班表"}
               </button>
             </>
-          )}
           <StatusBadge
             label={SCHEDULE_STATUS_LABELS[schedule.status]}
             tone={schedule.status === "published" ? "green" : "amber"}
@@ -801,6 +1051,9 @@ export function SchedulePageClient({
           </div>
         ) : (
           <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+            <p className="border-b border-slate-200 bg-amber-50 px-3 py-2 text-sm font-semibold text-black">
+              一診可多人：每個診別格子點「＋ 加入護理師」即可加第 2～6 人。手機請左右滑動表格。
+            </p>
             <div className="overflow-x-auto">
               <table className="min-w-full text-sm">
                 <thead>
@@ -838,10 +1091,12 @@ export function SchedulePageClient({
                         columns={allColumns}
                         employeeOptions={employeeOptions}
                         isPublished={isPublished}
+                        publishedSnapshot={publishedSnapshot}
                         isClosureDay={closureDateSet.has(workDate)}
                         holidayName={holidayMap.get(workDate)}
                         pendingCell={pendingCell}
                         rowBusy={isPending}
+                        staffingLimit={staffingPerSession}
                         onAssign={handleAssign}
                         onClosure={handleRowClosure}
                         onHalfDay={handleRowHalfDay}
@@ -866,10 +1121,12 @@ const ScheduleDayRow = memo(function ScheduleDayRow({
   columns,
   employeeOptions,
   isPublished,
+  publishedSnapshot,
   isClosureDay,
   holidayName,
   pendingCell,
   rowBusy,
+  staffingLimit,
   onAssign,
   onClosure,
   onHalfDay,
@@ -881,11 +1138,13 @@ const ScheduleDayRow = memo(function ScheduleDayRow({
   columns: ShiftType[];
   employeeOptions: { id: string; label: string }[];
   isPublished: boolean;
+  publishedSnapshot: PublishedAssignmentSnapshot | null;
   isClosureDay: boolean;
   holidayName?: string;
   pendingCell: string | null;
   rowBusy: boolean;
-  onAssign: (workDate: string, shift: ShiftType, employeeId: string) => void;
+  staffingLimit: number;
+  onAssign: (workDate: string, shift: ShiftType, employeeIds: string[]) => void;
   onClosure: (workDate: string) => void;
   onHalfDay: (workDate: string) => void;
 }) {
@@ -923,57 +1182,184 @@ const ScheduleDayRow = memo(function ScheduleDayRow({
           {holidayName && (
             <span className="text-[10px] font-normal text-rose-600">{holidayName}</span>
           )}
-          {!isPublished && (
-            <div className="flex gap-1">
-              <button
-                type="button"
-                onClick={() => onClosure(workDate)}
-                disabled={rowBusy}
-                className="rounded border border-slate-400 px-1.5 py-0.5 text-[10px] text-slate-600 hover:bg-slate-100 disabled:opacity-50"
-                title="全天休診"
-              >
-                休診
-              </button>
-              <button
-                type="button"
-                onClick={() => onHalfDay(workDate)}
-                disabled={rowBusy}
-                className="rounded border border-blue-400 px-1.5 py-0.5 text-[10px] text-blue-600 hover:bg-blue-50 disabled:opacity-50"
-                title="只看早診，清除晚診"
-              >
-                半日
-              </button>
-            </div>
-          )}
+          <div className="flex gap-1">
+            <button
+              type="button"
+              onClick={() => onClosure(workDate)}
+              disabled={rowBusy}
+              className="rounded border border-slate-400 px-1.5 py-0.5 text-[10px] text-slate-600 hover:bg-slate-100 disabled:opacity-50"
+              title="全天休診"
+            >
+              休診
+            </button>
+            <button
+              type="button"
+              onClick={() => onHalfDay(workDate)}
+              disabled={rowBusy}
+              className="rounded border border-blue-400 px-1.5 py-0.5 text-[10px] text-blue-600 hover:bg-blue-50 disabled:opacity-50"
+              title="只看早診，清除晚診"
+            >
+              半日
+            </button>
+          </div>
         </div>
       </td>
       <td className="px-3 py-2 text-slate-700">{weekdayLabel(workDate)}</td>
       <td className="px-3 py-2 text-xs text-slate-700">{sessionLabel}</td>
       {columns.map((shift) => {
         const cellKey = `${workDate}:${shift.id}`;
-        const selected = dayAssignments?.[shift.id] ?? "";
+        const selected = cellStaffIds(dayAssignments?.[shift.id]);
         const cellPending = pendingCell === cellKey;
+        const amended =
+          isPublished &&
+          isPublishedAmendment(publishedSnapshot, workDate, shift.id, selected);
+        const maxStaff =
+          shift.code === "MORNING" ||
+          shift.code === "AFTERNOON" ||
+          shift.code === "EVENING"
+            ? staffingLimit
+            : employeeOptions.length;
         return (
           <td key={shift.id} className="px-2 py-2">
-            <select
-              disabled={isPublished || cellPending}
-              value={selected ?? ""}
-              onChange={(e) => onAssign(workDate, shift, e.target.value)}
-              className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-800 outline-none focus:border-blue-400 disabled:bg-slate-100 disabled:text-slate-600"
-            >
-              <option value="">—</option>
-              {employeeOptions.map((emp) => (
-                <option key={emp.id} value={emp.id}>
-                  {emp.label}
-                </option>
-              ))}
-            </select>
+            <div className="relative">
+              <SessionStaffCell
+                selectedIds={selected}
+                options={employeeOptions}
+                disabled={cellPending}
+                maxStaff={Math.max(1, maxStaff)}
+                amended={amended}
+                onChange={(ids) => onAssign(workDate, shift, ids)}
+              />
+              {amended && (
+                <span className="absolute -right-1 -top-1 rounded bg-red-600 px-1 text-[9px] font-bold text-white">
+                  改
+                </span>
+              )}
+            </div>
           </td>
         );
       })}
     </tr>
   );
 });
+
+function SessionStaffCell({
+  selectedIds,
+  options,
+  disabled,
+  maxStaff,
+  amended,
+  onChange,
+}: {
+  selectedIds: string[];
+  options: { id: string; label: string }[];
+  disabled: boolean;
+  maxStaff: number;
+  amended: boolean;
+  onChange: (ids: string[]) => void;
+}) {
+  const selectedSet = new Set(selectedIds);
+  const addable = options.filter((emp) => !selectedSet.has(emp.id));
+  const canAdd = selectedIds.length < maxStaff && addable.length > 0;
+
+  return (
+    <div className="space-y-1">
+      <div className="flex flex-wrap gap-1">
+        {selectedIds.length === 0 && (
+          <span className="text-xs font-semibold text-black">尚未排人 · 可加到 {maxStaff} 人</span>
+        )}
+        {selectedIds.map((id) => {
+          const emp = options.find((item) => item.id === id);
+          return (
+            <span
+              key={id}
+              className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium ${
+                amended
+                  ? "bg-red-100 text-red-800"
+                  : "bg-slate-100 text-slate-800"
+              }`}
+            >
+              {emp?.label ?? "未知"}
+              <button
+                type="button"
+                disabled={disabled}
+                onClick={() => onChange(selectedIds.filter((item) => item !== id))}
+                className="text-slate-500 hover:text-red-600 disabled:opacity-40"
+                aria-label={`移除 ${emp?.label ?? ""}`}
+              >
+                ×
+              </button>
+            </span>
+          );
+        })}
+      </div>
+      {canAdd && (
+        <select
+          disabled={disabled}
+          value=""
+          onChange={(e) => {
+            if (!e.target.value) return;
+            onChange([...selectedIds, e.target.value]);
+          }}
+          className={`w-full rounded-lg border bg-white px-2 py-2 text-xs font-semibold outline-none focus:border-blue-400 disabled:bg-slate-100 ${
+            amended ? "border-red-400 text-red-700" : "border-slate-800 text-black"
+          }`}
+        >
+          <option value="">
+            {selectedIds.length === 0
+              ? "＋ 加入護理師（一診可多人）"
+              : `＋ 再加一位（${selectedIds.length}／${maxStaff}）`}
+          </option>
+          {addable.map((emp) => (
+            <option key={emp.id} value={emp.id}>
+              {emp.label}
+            </option>
+          ))}
+        </select>
+      )}
+      {!canAdd && selectedIds.length >= maxStaff && (
+        <p className="text-[11px] font-semibold text-black">
+          已滿 {maxStaff} 人。要再加人請先把上方「一診可排幾人」調高（最多 6）。
+        </p>
+      )}
+    </div>
+  );
+}
+
+function TimeRangeField({
+  label,
+  start,
+  end,
+  onStart,
+  onEnd,
+}: {
+  label: string;
+  start: string;
+  end: string;
+  onStart: (value: string) => void;
+  onEnd: (value: string) => void;
+}) {
+  return (
+    <div>
+      <label className="mb-1 block text-xs font-medium text-slate-700">{label}</label>
+      <div className="flex items-center gap-1">
+        <input
+          type="time"
+          value={start.slice(0, 5)}
+          onChange={(e) => onStart(e.target.value)}
+          className="rounded-lg border border-slate-300 px-2 py-1.5 text-sm text-slate-800"
+        />
+        <span className="text-xs text-slate-400">–</span>
+        <input
+          type="time"
+          value={end.slice(0, 5)}
+          onChange={(e) => onEnd(e.target.value)}
+          className="rounded-lg border border-slate-300 px-2 py-1.5 text-sm text-slate-800"
+        />
+      </div>
+    </div>
+  );
+}
 
 function StatusBadge({ label, tone }: { label: string; tone: "green" | "amber" }) {
   const styles =

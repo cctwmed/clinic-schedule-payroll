@@ -8,7 +8,9 @@ export default function LoginPage() {
         <div className="mb-6 text-center">
           <p className="text-xs font-medium uppercase tracking-wider text-emerald-600">診所後台</p>
           <h1 className="mt-1 text-xl font-bold text-slate-900">晴川排班支薪系統</h1>
-          <p className="mt-2 text-sm text-slate-700">請使用管理員帳號登入（建議使用電腦瀏覽器）</p>
+          <p className="mt-2 text-sm text-black">
+            管理員帳號：forget50@hotmail.com（手機請在 LINE 打卡頁解鎖管理員後操作）
+          </p>
         </div>
 
         <Suspense fallback={<p className="text-center text-sm text-slate-400">載入中…</p>}>
@@ -16,7 +18,7 @@ export default function LoginPage() {
         </Suspense>
 
         <p className="mt-6 text-center text-xs text-slate-400">
-          同仁 LINE 打卡無需由此登入，請使用 LINE 開啟打卡頁。
+          同仁 LINE 打卡無需由此登入。LINE 裡的「管理員」功能會直接進後台，不必填這組帳密。
         </p>
       </div>
     </div>

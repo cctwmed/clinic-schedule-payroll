@@ -3,7 +3,7 @@ chcp 65001 >nul
 cd /d "%~dp0"
 echo.
 echo ========================================
-echo   診所排班支薪系統 - 本機後台
+echo   診所排班支薪系統（本機唯一入口）
 echo ========================================
 echo.
 
@@ -30,11 +30,12 @@ if not exist "node_modules" (
   echo.
 )
 
-echo 啟動後請用瀏覽器開啟：
-echo   管理後台（排班／薪資）  http://localhost:3001
-echo   打卡頁面                http://localhost:3001/liff/clock
+echo 即將自動開啟瀏覽器：http://localhost:3001
+echo 請不要再開其他網址或舊的 Vercel 分頁。
+echo 員工打卡請用 LINE；這裡是管理後台。
 echo.
 echo 若要停止，在此視窗按 Ctrl+C
 echo.
+start "" cmd /c "timeout /t 6 /nobreak >nul & start http://localhost:3001"
 call npm run dev
 pause

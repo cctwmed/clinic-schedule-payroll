@@ -1,4 +1,4 @@
-/** 可打卡的工作班別代碼（依 sort 排序；未來可加入 AFTERNOON 午診） */
+/** 可打卡的工作班別代碼（早／午／晚；依當日班表顯示幾診） */
 export const WORK_SHIFT_CODES = ["MORNING", "AFTERNOON", "EVENING"] as const;
 export type WorkShiftCode = (typeof WORK_SHIFT_CODES)[number];
 
@@ -36,8 +36,8 @@ export function formatShiftClockConfirmedLabel(
 ): string {
   const session = getShiftDisplayName(shiftCode, shiftName);
   return clockType === "clock_in"
-    ? `${session} · 已確認打卡`
-    : `${session} · 已確認下班`;
+    ? `${session} · 已打卡`
+    : `${session} · 已下班`;
 }
 
 export function isWorkShiftCode(code: string): boolean {

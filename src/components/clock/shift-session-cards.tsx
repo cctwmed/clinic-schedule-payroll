@@ -1,5 +1,6 @@
 "use client";
 
+import { CLOCK_EARLY_MINUTES } from "@/lib/clock/clock-window";
 import {
   formatClockTime,
   formatSessionLabel,
@@ -183,6 +184,13 @@ function ClockStep({
         {formatClockTime(actual)}
       </p>
       <p className="text-[11px] text-slate-400">應 {kind === "in" ? "到" : "退"} {expected}</p>
+      {!done && (
+        <p className="text-[11px] text-slate-400">
+          {kind === "in"
+            ? `最早可提前 ${CLOCK_EARLY_MINUTES} 分打卡`
+            : `最早可於結束前 ${CLOCK_EARLY_MINUTES} 分打卡`}
+        </p>
+      )}
       {late && lateMinutes != null && lateMinutes > 0 && (
         <p className="mt-0.5 text-[11px] font-medium text-amber-600">遲到 {lateMinutes} 分</p>
       )}

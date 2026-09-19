@@ -187,7 +187,7 @@ export function buildClockInFlexMessage(
           },
           {
             type: "text",
-            text: "早診 08:20、晚診 16:00 到班；雙診日需分別打上班／下班。",
+            text: "依當日班表打卡：兩段班早／晚各一組上下班；三段班早／午／晚三組。",
             wrap: true,
             size: "xs",
             color: "#64748B",

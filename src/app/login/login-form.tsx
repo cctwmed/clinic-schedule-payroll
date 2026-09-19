@@ -13,7 +13,7 @@ export function LoginForm() {
   const created = searchParams.get("created") === "1";
   const createdEmail = searchParams.get("email") ?? "";
 
-  const [email, setEmail] = useState(createdEmail);
+  const [email, setEmail] = useState(createdEmail || "forget50@hotmail.com");
   const [password, setPassword] = useState("");
   const [needsSetup, setNeedsSetup] = useState(false);
   const [error, setError] = useState<string | null>(

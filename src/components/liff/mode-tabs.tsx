@@ -7,15 +7,13 @@ interface ModeTabsProps {
   mode: LiffMode;
   isClinicAdmin: boolean;
   onChange: (mode: LiffMode) => void;
+  onLockedAdminClick?: () => void;
 }
 
-export function ModeTabs({ mode, isClinicAdmin, onChange }: ModeTabsProps) {
+export function ModeTabs({ mode, isClinicAdmin, onChange, onLockedAdminClick }: ModeTabsProps) {
   function handleAdminClick() {
-    if (!isClinicAdmin) {
-      window.alert("您無管理員權限");
-      return;
-    }
     onChange("admin");
+    if (!isClinicAdmin) onLockedAdminClick?.();
   }
 
   return (
@@ -34,12 +32,10 @@ export function ModeTabs({ mode, isClinicAdmin, onChange }: ModeTabsProps) {
       <button
         type="button"
         onClick={handleAdminClick}
-        className={`flex flex-1 items-center justify-center gap-1.5 rounded-xl py-3 text-sm font-semibold transition-all duration-200 ${
+        className={`flex flex-1 touch-manipulation items-center justify-center gap-1.5 rounded-xl py-3 text-sm font-semibold transition-all duration-200 ${
           mode === "admin"
             ? "bg-emerald-600 text-white shadow-md"
-            : isClinicAdmin
-              ? "text-slate-600 hover:bg-white/80"
-              : "cursor-not-allowed text-slate-400"
+            : "text-slate-900 hover:bg-white/80"
         }`}
       >
         {!isClinicAdmin && <Lock className="h-3.5 w-3.5" strokeWidth={2.5} />}

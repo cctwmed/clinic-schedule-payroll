@@ -167,16 +167,16 @@ export function PayrollPageClient({
           <div className="flex flex-wrap items-center gap-2">
             <button
               onClick={() => changeMonth(-1)}
-              className="rounded-lg border border-slate-300 px-3 py-2 text-sm hover:bg-slate-50"
+              className="rounded-lg border border-slate-800 bg-white px-3 py-2 text-sm font-semibold text-black hover:bg-slate-100"
             >
               ← 上個月
             </button>
-            <span className="min-w-28 text-center text-sm font-semibold">
+            <span className="min-w-28 text-center text-sm font-semibold text-black">
               {year} 年 {month} 月
             </span>
             <button
               onClick={() => changeMonth(1)}
-              className="rounded-lg border border-slate-300 px-3 py-2 text-sm hover:bg-slate-50"
+              className="rounded-lg border border-slate-800 bg-white px-3 py-2 text-sm font-semibold text-black hover:bg-slate-100"
             >
               下個月 →
             </button>
