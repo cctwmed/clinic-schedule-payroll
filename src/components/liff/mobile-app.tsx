@@ -17,6 +17,7 @@ import { AdminScheduleTab } from "@/components/liff/tabs/admin-schedule-tab";
 import { AdminPeopleTab } from "@/components/liff/tabs/admin-people-tab";
 import { AdminPayTab } from "@/components/liff/tabs/admin-pay-tab";
 import { AdminClocksTab } from "@/components/liff/tabs/admin-clocks-tab";
+import type { AdminInboxSection } from "@/components/liff/function-grid";
 import { readStoredLiffAdminToken } from "@/lib/liff/admin-session";
 import { readApiJson } from "@/lib/liff/read-api-json";
 
@@ -94,6 +95,7 @@ function buildLiffRedirectUri(): string {
 export function MobileApp({ liffId, appUrl }: MobileAppProps) {
   const [mode, setMode] = useState<LiffMode>("employee");
   const [tab, setTab] = useState<MobileTab>("clock");
+  const [inboxSection, setInboxSection] = useState<AdminInboxSection>("all");
   const [phase, setPhase] = useState<InitPhase>("loading-sdk");
   const [lineUserId, setLineUserId] = useState<string | null>(null);
   const [displayName, setDisplayName] = useState("");
@@ -276,13 +278,25 @@ export function MobileApp({ liffId, appUrl }: MobileAppProps) {
             onAdminAccessRefresh={refreshAdminAccess}
             mode={mode}
             onModeChange={setMode}
-            onNavigate={setTab}
+            onNavigate={(next, extras) => {
+              setInboxSection(extras?.inboxSection ?? "all");
+              setTab(next);
+            }}
           />
         </SubpageErrorBoundary>
       );
     }
 
-    const subTitle = SUB_PAGE_TITLES[tab] ?? "功能";
+    const inboxTitles: Record<AdminInboxSection, string> = {
+      all: "待審中心",
+      leave: "審核請假",
+      abnormal: "審核異常",
+      overtime: "審核加班",
+    };
+    const subTitle =
+      tab === "admin-inbox"
+        ? inboxTitles[inboxSection]
+        : (SUB_PAGE_TITLES[tab] ?? "功能");
     const subPage = (() => {
       switch (tab) {
         case "schedule":
@@ -298,7 +312,7 @@ export function MobileApp({ liffId, appUrl }: MobileAppProps) {
         case "overtime":
           return <OvertimeTab lineUserId={lineUserId} onGoBind={goBind} />;
         case "admin-inbox":
-          return <AdminInboxTab lineUserId={lineUserId} />;
+          return <AdminInboxTab lineUserId={lineUserId} section={inboxSection} />;
         case "admin-schedule":
           return <AdminScheduleTab lineUserId={lineUserId} />;
         case "admin-people":
@@ -315,12 +329,12 @@ export function MobileApp({ liffId, appUrl }: MobileAppProps) {
     return (
       <div className="px-4 pb-8 pt-2">
         <SubPageHeader title={subTitle} onBack={goHome} />
-        <SubpageErrorBoundary key={tab} onBack={goHome}>
+        <SubpageErrorBoundary key={`${tab}-${inboxSection}`} onBack={goHome}>
           {subPage}
         </SubpageErrorBoundary>
       </div>
     );
-  }, [tab, mode, phase, lineUserId, displayName, liffId, error, appUrl, isClinicAdmin, adminAccessError, refreshAdminAccess]);
+  }, [tab, inboxSection, mode, phase, lineUserId, displayName, liffId, error, appUrl, isClinicAdmin, adminAccessError, refreshAdminAccess]);
 
   return (
     <div className="mx-auto min-h-screen max-w-md bg-gradient-to-b from-sky-50 via-slate-50 to-slate-100">

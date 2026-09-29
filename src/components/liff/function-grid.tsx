@@ -20,8 +20,12 @@ import type { LiffMode } from "@/components/liff/mode-switcher";
 import type { MobileTab } from "@/components/liff/bottom-nav";
 
 export type { MobileTab };
+
+/** 管理員待審頁要打開的區塊，避免四個按鈕都進同一頁 */
+export type AdminInboxSection = "all" | "leave" | "abnormal" | "overtime";
+
 export type GridAction =
-  | { type: "tab"; tab: MobileTab }
+  | { type: "tab"; tab: MobileTab; inboxSection?: AdminInboxSection }
   | { type: "clock" }
   | { type: "admin"; href: string }
   | { type: "settings" };
@@ -110,7 +114,7 @@ function adminItems(): GridItem[] {
       id: "review-inbox",
       label: "待審中心",
       icon: FileCheck,
-      action: { type: "tab", tab: "admin-inbox" },
+      action: { type: "tab", tab: "admin-inbox", inboxSection: "all" },
       accent: true,
       bgClass: "bg-emerald-50",
       iconClass: "text-emerald-600",
@@ -118,16 +122,16 @@ function adminItems(): GridItem[] {
     {
       id: "review-leave",
       label: "審核請假",
-      icon: FileCheck,
-      action: { type: "tab", tab: "admin-inbox" },
+      icon: CalendarCheck,
+      action: { type: "tab", tab: "admin-inbox", inboxSection: "leave" },
       bgClass: "bg-sky-50",
       iconClass: "text-sky-600",
     },
     {
       id: "review-abnormal",
-      label: "異常審核",
+      label: "審核異常",
       icon: AlertTriangle,
-      action: { type: "tab", tab: "admin-inbox" },
+      action: { type: "tab", tab: "admin-inbox", inboxSection: "abnormal" },
       bgClass: "bg-amber-50",
       iconClass: "text-amber-600",
     },
@@ -135,7 +139,7 @@ function adminItems(): GridItem[] {
       id: "review-ot",
       label: "審核加班",
       icon: AlarmClock,
-      action: { type: "tab", tab: "admin-inbox" },
+      action: { type: "tab", tab: "admin-inbox", inboxSection: "overtime" },
       bgClass: "bg-violet-50",
       iconClass: "text-violet-600",
     },

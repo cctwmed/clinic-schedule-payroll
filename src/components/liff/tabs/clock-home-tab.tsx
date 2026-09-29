@@ -2,7 +2,11 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ClockSheet } from "@/components/liff/clock-sheet";
-import { FunctionGrid, type GridAction } from "@/components/liff/function-grid";
+import {
+  FunctionGrid,
+  type AdminInboxSection,
+  type GridAction,
+} from "@/components/liff/function-grid";
 import type { MobileTab } from "@/components/liff/bottom-nav";
 import { ModeTabs } from "@/components/liff/mode-tabs";
 import type { LiffMode } from "@/components/liff/mode-switcher";
@@ -59,7 +63,7 @@ interface ClockHomeTabProps {
   onAdminAccessRefresh?: () => void;
   mode: LiffMode;
   onModeChange: (mode: LiffMode) => void;
-  onNavigate?: (tab: MobileTab) => void;
+  onNavigate?: (tab: MobileTab, extras?: { inboxSection?: AdminInboxSection }) => void;
 }
 
 function formatTaipeiDate(dateStr: string): string {
@@ -290,7 +294,7 @@ export function ClockHomeTab({
           setError("無法開啟此功能，請重新整理頁面");
           return;
         }
-        onNavigate(action.tab);
+        onNavigate(action.tab, { inboxSection: action.inboxSection });
         return;
       }
       if (action.type === "clock") {

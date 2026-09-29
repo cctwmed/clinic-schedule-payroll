@@ -6,9 +6,11 @@ import type { ReactNode } from "react";
 import { formatDurationZh } from "@/lib/time-24";
 import { readStoredLiffAdminToken } from "@/lib/liff/admin-session";
 import { friendlyLiffError, readApiJson } from "@/lib/liff/read-api-json";
+import type { AdminInboxSection } from "@/components/liff/function-grid";
 
 interface AdminInboxTabProps {
   lineUserId: string;
+  section?: AdminInboxSection;
 }
 
 type Kind = "leave" | "correction" | "overtime" | "early";
@@ -52,12 +54,17 @@ const CLOCK_TYPE_LABELS: Record<string, string> = {
   clock_out: "下班",
 };
 
-export function AdminInboxTab({ lineUserId }: AdminInboxTabProps) {
+export function AdminInboxTab({ lineUserId, section = "all" }: AdminInboxTabProps) {
   const [data, setData] = useState<InboxData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [isPending, startTransition] = useTransition();
+  const [focus, setFocus] = useState<AdminInboxSection>(section);
+
+  useEffect(() => {
+    setFocus(section);
+  }, [section]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -124,14 +131,39 @@ export function AdminInboxTab({ lineUserId }: AdminInboxTabProps) {
   const correctionCount = data?.corrections.length ?? 0;
   const otCount = data?.overtime.length ?? 0;
   const earlyCount = data?.early.length ?? 0;
+  const abnormalCount = correctionCount + earlyCount;
   const total = leaveCount + correctionCount + otCount + earlyCount;
+  const showLeave = focus === "all" || focus === "leave";
+  const showAbnormal = focus === "all" || focus === "abnormal";
+  const showOvertime = focus === "all" || focus === "overtime";
+
+  const tabs: { id: AdminInboxSection; label: string; count: number }[] = [
+    { id: "all", label: "全部", count: total },
+    { id: "leave", label: "請假", count: leaveCount },
+    { id: "abnormal", label: "異常", count: abnormalCount },
+    { id: "overtime", label: "加班", count: otCount },
+  ];
 
   return (
     <div className="space-y-4 pb-6">
-      <p className="text-sm font-semibold text-slate-900">
-        待審共 {total} 筆（請假 {leaveCount}／補打卡 {correctionCount}／加班 {otCount}／提早{" "}
-        {earlyCount}）
-      </p>
+      <div className="grid grid-cols-4 gap-1 rounded-2xl bg-slate-200/80 p-1">
+        {tabs.map((tab) => (
+          <button
+            key={tab.id}
+            type="button"
+            onClick={() => setFocus(tab.id)}
+            className={`min-h-11 rounded-xl text-center text-[11px] font-semibold leading-tight ${
+              focus === tab.id
+                ? "bg-white text-slate-900 shadow-sm"
+                : "text-slate-600"
+            }`}
+          >
+            {tab.label}
+            <span className="mt-0.5 block text-[10px] font-medium">{tab.count}</span>
+          </button>
+        ))}
+      </div>
+
       {message && (
         <p className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
           {message}
@@ -143,64 +175,71 @@ export function AdminInboxTab({ lineUserId }: AdminInboxTabProps) {
         </p>
       )}
 
-      <InboxSection title="請假" empty="目前沒有待審請假">
-        {data?.leaves.map((item) => (
-          <InboxCard
-            key={item.id}
-            title={`${item.employeeName} · ${leaveTypeLabel(item.leaveType as LeaveRecordType)} · ${item.workDate}`}
-            detail={`${item.hours} 小時${item.reason ? ` · ${item.reason}` : ""}`}
-            disabled={isPending}
-            onReject={() => review("leave", item.id, false)}
-            onApprove={() => review("leave", item.id, true)}
-            approveLabel="核准請假"
-          />
-        ))}
-      </InboxSection>
+      {showLeave && (
+        <InboxSection title="請假" empty="目前沒有待審請假">
+          {data?.leaves.map((item) => (
+            <InboxCard
+              key={item.id}
+              title={`${item.employeeName} · ${leaveTypeLabel(item.leaveType as LeaveRecordType)} · ${item.workDate}`}
+              detail={`${item.hours} 小時${item.reason ? ` · ${item.reason}` : ""}`}
+              disabled={isPending}
+              onReject={() => review("leave", item.id, false)}
+              onApprove={() => review("leave", item.id, true)}
+              approveLabel="核准請假"
+            />
+          ))}
+        </InboxSection>
+      )}
 
-      <InboxSection title="忘記／修正打卡" empty="目前沒有待審補打卡">
-        {data?.corrections.map((item) => (
-          <InboxCard
-            key={item.id}
-            title={`${item.employee_name} · ${item.work_date} · ${CLOCK_TYPE_LABELS[item.clock_type] ?? item.clock_type} ${item.requested_time}`}
-            detail={item.reason ?? "未填原因"}
-            disabled={isPending}
-            onReject={() => review("correction", item.id, false)}
-            onApprove={() => review("correction", item.id, true)}
-            approveLabel="核准補登"
-          />
-        ))}
-      </InboxSection>
+      {showAbnormal && (
+        <>
+          <InboxSection title="忘記／修正打卡" empty="目前沒有待審補打卡">
+            {data?.corrections.map((item) => (
+              <InboxCard
+                key={item.id}
+                title={`${item.employee_name} · ${item.work_date} · ${CLOCK_TYPE_LABELS[item.clock_type] ?? item.clock_type} ${item.requested_time}`}
+                detail={item.reason ?? "未填原因"}
+                disabled={isPending}
+                onReject={() => review("correction", item.id, false)}
+                onApprove={() => review("correction", item.id, true)}
+                approveLabel="核准補登"
+              />
+            ))}
+          </InboxSection>
+          <InboxSection title="異常提早打卡" empty="目前沒有待審提早打卡">
+            {data?.early.map((item) => (
+              <InboxCard
+                key={item.id}
+                title={`${item.employee_name} · 提早 ${item.early_minutes} 分`}
+                detail={new Date(item.clocked_at).toLocaleString("zh-TW", {
+                  timeZone: "Asia/Taipei",
+                })}
+                disabled={isPending}
+                onReject={() => review("early", item.id, false)}
+                onApprove={() => review("early", item.id, true)}
+                approveLabel="核可提早工時"
+                rejectLabel="對齊班表"
+              />
+            ))}
+          </InboxSection>
+        </>
+      )}
 
-      <InboxSection title="加班" empty="目前沒有待審加班">
-        {data?.overtime.map((item) => (
-          <InboxCard
-            key={item.id}
-            title={`${item.employee_name ?? "同仁"} · ${item.work_date} · ${item.start_time.slice(0, 5)}–${item.end_time.slice(0, 5)}`}
-            detail={`${formatDurationZh(item.duration_minutes)}${item.reason ? ` · ${item.reason}` : ""}`}
-            disabled={isPending}
-            onReject={() => review("overtime", item.id, false)}
-            onApprove={() => review("overtime", item.id, true)}
-            approveLabel="核准加班"
-          />
-        ))}
-      </InboxSection>
-
-      <InboxSection title="異常提早打卡" empty="目前沒有待審提早打卡">
-        {data?.early.map((item) => (
-          <InboxCard
-            key={item.id}
-            title={`${item.employee_name} · 提早 ${item.early_minutes} 分`}
-            detail={new Date(item.clocked_at).toLocaleString("zh-TW", {
-              timeZone: "Asia/Taipei",
-            })}
-            disabled={isPending}
-            onReject={() => review("early", item.id, false)}
-            onApprove={() => review("early", item.id, true)}
-            approveLabel="核可提早工時"
-            rejectLabel="對齊班表"
-          />
-        ))}
-      </InboxSection>
+      {showOvertime && (
+        <InboxSection title="加班" empty="目前沒有待審加班">
+          {data?.overtime.map((item) => (
+            <InboxCard
+              key={item.id}
+              title={`${item.employee_name ?? "同仁"} · ${item.work_date} · ${item.start_time.slice(0, 5)}–${item.end_time.slice(0, 5)}`}
+              detail={`${formatDurationZh(item.duration_minutes)}${item.reason ? ` · ${item.reason}` : ""}`}
+              disabled={isPending}
+              onReject={() => review("overtime", item.id, false)}
+              onApprove={() => review("overtime", item.id, true)}
+              approveLabel="核准加班"
+            />
+          ))}
+        </InboxSection>
+      )}
     </div>
   );
 }
