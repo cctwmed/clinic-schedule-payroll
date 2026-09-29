@@ -242,7 +242,7 @@ export function ClockHomeTab({
         }),
       });
       const data = await readApiJson<{ message?: string }>(res, "打卡失敗");
-      setMessage(data.message);
+      setMessage(data.message ?? "打卡成功");
       await loadStatus();
     } catch (err) {
       setError(friendlyLiffError(err, "打卡失敗"));
