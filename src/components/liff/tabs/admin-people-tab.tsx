@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { adminRequestInit } from "@/lib/liff/admin-session";
+import { friendlyLiffError, readApiJson } from "@/lib/liff/read-api-json";
 
 interface AdminPeopleTabProps {
   lineUserId: string;
@@ -21,11 +22,10 @@ export function AdminPeopleTab({ lineUserId }: AdminPeopleTabProps) {
       headers: req.headers,
     })
       .then(async (res) => {
-        const json = await res.json();
-        if (!res.ok) throw new Error(json.error ?? "載入失敗");
+        const json = await readApiJson<{ employees?: typeof rows }>(res, "載入失敗");
         setRows(json.employees ?? []);
       })
-      .catch((err) => setError(err instanceof Error ? err.message : "載入失敗"))
+      .catch((err) => setError(friendlyLiffError(err, "載入失敗")))
       .finally(() => setLoading(false));
   }, [lineUserId]);
 

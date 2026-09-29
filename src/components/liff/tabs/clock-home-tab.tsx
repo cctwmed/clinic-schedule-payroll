@@ -19,6 +19,7 @@ import {
   storeLiffAdminToken,
 } from "@/lib/liff/admin-session";
 import { CLINIC_ADMIN_EMAILS } from "@/lib/employee/access";
+import { friendlyLiffError, readApiJson } from "@/lib/liff/read-api-json";
 
 type ClockType = "clock_in" | "clock_out";
 
@@ -149,7 +150,7 @@ export function ClockHomeTab({
   }, [lineUserId]);
 
   useEffect(() => {
-    loadStatus().catch((e) => setError(e instanceof Error ? e.message : "載入失敗"));
+    loadStatus().catch((e) => setError(friendlyLiffError(e, "載入失敗")));
   }, [loadStatus]);
 
   const getLocation = useCallback(() => {
@@ -197,13 +198,12 @@ export function ClockHomeTab({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ lineUserId, employeeId: selectedEmployeeId, displayName }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error);
+      await readApiJson(res, "綁定失敗");
       await loadStatus();
       onAdminAccessRefresh?.();
       setMessage("身份綁定成功");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "綁定失敗");
+      setError(friendlyLiffError(err, "綁定失敗"));
     } finally {
       setLoading(false);
     }
@@ -241,12 +241,11 @@ export function ClockHomeTab({
           accuracy: gps.accuracy,
         }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "打卡失敗");
+      const data = await readApiJson<{ message?: string }>(res, "打卡失敗");
       setMessage(data.message);
       await loadStatus();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "打卡失敗");
+      setError(friendlyLiffError(err, "打卡失敗"));
     } finally {
       setLoading(false);
       setLoadingTarget(null);
@@ -268,42 +267,52 @@ export function ClockHomeTab({
           password: unlockPassword,
         }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "解鎖失敗");
+      const data = await readApiJson<{ token?: string }>(res, "解鎖失敗");
       if (data.token) storeLiffAdminToken(data.token);
       setUnlocked(true);
       setUnlockPassword("");
       setShowUnlock(false);
+      setError(null);
       setMessage("已解鎖管理員，可審核請假與異常打卡");
       onModeChange("admin");
       onAdminAccessRefresh?.();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "解鎖失敗");
+      setError(friendlyLiffError(err, "解鎖失敗"));
     } finally {
       setUnlocking(false);
     }
   }
 
   function handleGridAction(action: GridAction) {
-    if (action.type === "tab") {
-      if (!onNavigate) {
-        setError("無法開啟此功能，請重新整理頁面");
+    try {
+      if (action.type === "tab") {
+        if (!onNavigate) {
+          setError("無法開啟此功能，請重新整理頁面");
+          return;
+        }
+        onNavigate(action.tab);
         return;
       }
-      onNavigate(action.tab);
-      return;
-    }
-    if (action.type === "clock") {
-      getLocation();
-      setClockSheetOpen(true);
-      return;
-    }
-    if (action.type === "admin") {
-      setError("此功能請改點上方圖示，會在 LINE 內開啟，不必另開網頁");
-      return;
-    }
-    if (action.type === "settings") {
-      setSettingsOpen(true);
+      if (action.type === "clock") {
+        getLocation();
+        setClockSheetOpen(true);
+        return;
+      }
+      if (action.type === "admin") {
+        setError("此功能請改點上方圖示，會在 LINE 內開啟，不必另開網頁");
+        return;
+      }
+      if (action.type === "settings") {
+        setSettingsOpen(true);
+      }
+    } catch (err) {
+      setError(
+        err instanceof Error && /Failed to execute/i.test(err.message)
+          ? "此功能暫時無法開啟。請關閉視窗後從官方帳號重新點一次。"
+          : err instanceof Error
+            ? err.message
+            : "無法開啟此功能"
+      );
     }
   }
 
@@ -418,7 +427,10 @@ export function ClockHomeTab({
           <ModeTabs
             mode={mode}
             isClinicAdmin={canAdmin}
-            onChange={onModeChange}
+            onChange={(next) => {
+              setError(null);
+              onModeChange(next);
+            }}
             onLockedAdminClick={() => setShowUnlock(true)}
           />
           {(showUnlock || !canAdmin) && (
@@ -461,7 +473,8 @@ export function ClockHomeTab({
               </button>
             </form>
           )}
-          {adminAccessError && (
+          {adminAccessError &&
+            !/Failed to execute|Unexpected token|is not valid JSON/i.test(adminAccessError) && (
             <p className="text-center text-xs text-red-700">{adminAccessError}</p>
           )}
 

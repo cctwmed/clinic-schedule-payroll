@@ -21,41 +21,54 @@ async function requireAdmin(request: NextRequest, lineUserId: string, token?: st
 }
 
 export async function GET(request: NextRequest) {
-  const lineUserId = request.nextUrl.searchParams.get("lineUserId");
-  if (!lineUserId) {
-    return NextResponse.json({ error: "缺少 lineUserId" }, { status: 400 });
+  try {
+    const lineUserId = request.nextUrl.searchParams.get("lineUserId");
+    if (!lineUserId) {
+      return NextResponse.json({ error: "缺少 lineUserId" }, { status: 400 });
+    }
+
+    const admin = await requireAdmin(request, lineUserId);
+    if (!admin.ok) {
+      return NextResponse.json({ error: admin.error }, { status: 403 });
+    }
+
+    const clinic = await getDefaultClinic();
+    const empty = <T,>(fallback: T) =>
+      (err: unknown): T => {
+        console.error("[admin/inbox]", err);
+        return fallback;
+      };
+    const [leaves, corrections, overtime, early] = await Promise.all([
+      fetchLeaveRecords(clinic.id, { status: "pending" }).catch(empty([])),
+      fetchPendingCorrectionRequests(clinic.id).catch(empty([])),
+      listPendingOvertimeRequests(clinic.id).catch(empty([])),
+      listPendingEarlyAbnormal(clinic.id).catch(empty([])),
+    ]);
+
+    return NextResponse.json({
+      leaves: leaves.map((r) => ({
+        id: r.id,
+        employeeName: r.employee_name,
+        workDate: r.work_date,
+        leaveType: r.leave_type,
+        hours: r.total_hours,
+        reason: r.reason,
+      })),
+      corrections,
+      overtime,
+      early,
+    });
+  } catch (err) {
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : "載入待審失敗" },
+      { status: 500 }
+    );
   }
-
-  const admin = await requireAdmin(request, lineUserId);
-  if (!admin.ok) {
-    return NextResponse.json({ error: admin.error }, { status: 403 });
-  }
-
-  const clinic = await getDefaultClinic();
-  const [leaves, corrections, overtime, early] = await Promise.all([
-    fetchLeaveRecords(clinic.id, { status: "pending" }),
-    fetchPendingCorrectionRequests(clinic.id),
-    listPendingOvertimeRequests(clinic.id),
-    listPendingEarlyAbnormal(clinic.id),
-  ]);
-
-  return NextResponse.json({
-    leaves: leaves.map((r) => ({
-      id: r.id,
-      employeeName: r.employee_name,
-      workDate: r.work_date,
-      leaveType: r.leave_type,
-      hours: r.total_hours,
-      reason: r.reason,
-    })),
-    corrections,
-    overtime,
-    early,
-  });
 }
 
 export async function POST(request: NextRequest) {
-  const body = (await request.json()) as {
+  try {
+    const body = (await request.json()) as {
     lineUserId?: string;
     kind?: "leave" | "correction" | "overtime" | "early";
     id?: string;
@@ -143,5 +156,11 @@ export async function POST(request: NextRequest) {
     });
   }
 
-  return NextResponse.json({ error: "未知審核類型" }, { status: 400 });
+    return NextResponse.json({ error: "未知審核類型" }, { status: 400 });
+  } catch (err) {
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : "審核失敗" },
+      { status: 500 }
+    );
+  }
 }

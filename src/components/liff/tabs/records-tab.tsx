@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { friendlyLiffError, parseApiJson } from "@/lib/liff/read-api-json";
 
 interface RecordsTabProps {
   lineUserId: string;
@@ -27,9 +28,9 @@ export function RecordsTab({ lineUserId, onGoBind }: RecordsTabProps) {
     setLoading(true);
     fetch(`/api/mobile/records?lineUserId=${encodeURIComponent(lineUserId)}`)
       .then(async (res) => {
-        const data = await res.json();
-        if (!res.ok) {
-          if (res.status === 400 && data.error?.includes("綁定")) {
+        const { ok, status, data } = await parseApiJson<{ records?: RecordRow[] }>(res);
+        if (!ok) {
+          if (status === 400 && data.error?.includes("綁定")) {
             setNeedsBind(true);
             return;
           }
@@ -37,7 +38,7 @@ export function RecordsTab({ lineUserId, onGoBind }: RecordsTabProps) {
         }
         setRecords(data.records ?? []);
       })
-      .catch((e) => setError(e instanceof Error ? e.message : "載入失敗"))
+      .catch((e) => setError(friendlyLiffError(e, "載入失敗")))
       .finally(() => setLoading(false));
   }, [lineUserId]);
 

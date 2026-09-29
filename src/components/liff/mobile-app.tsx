@@ -1,66 +1,24 @@
 "use client";
 
-import dynamic from "next/dynamic";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { MobileTab } from "@/components/liff/bottom-nav";
 import type { LiffMode } from "@/components/liff/mode-switcher";
 import { SubPageHeader } from "@/components/liff/sub-page-header";
+import { SubpageErrorBoundary } from "@/components/liff/subpage-error-boundary";
 import { ClockHomeTab } from "@/components/liff/tabs/clock-home-tab";
+import { ScheduleTab } from "@/components/liff/tabs/schedule-tab";
+import { PayslipTab } from "@/components/liff/tabs/payslip-tab";
+import { LeaveTab } from "@/components/liff/tabs/leave-tab";
+import { RecordsTab } from "@/components/liff/tabs/records-tab";
+import { ForgotClockTab } from "@/components/liff/tabs/forgot-clock-tab";
+import { OvertimeTab } from "@/components/liff/tabs/overtime-tab";
+import { AdminInboxTab } from "@/components/liff/tabs/admin-inbox-tab";
+import { AdminScheduleTab } from "@/components/liff/tabs/admin-schedule-tab";
+import { AdminPeopleTab } from "@/components/liff/tabs/admin-people-tab";
+import { AdminPayTab } from "@/components/liff/tabs/admin-pay-tab";
+import { AdminClocksTab } from "@/components/liff/tabs/admin-clocks-tab";
 import { readStoredLiffAdminToken } from "@/lib/liff/admin-session";
-
-const ScheduleTab = dynamic(
-  () => import("@/components/liff/tabs/schedule-tab").then((m) => m.ScheduleTab),
-  { loading: () => <TabLoading label="班表" /> }
-);
-const PayslipTab = dynamic(
-  () => import("@/components/liff/tabs/payslip-tab").then((m) => m.PayslipTab),
-  { loading: () => <TabLoading label="薪資" /> }
-);
-const LeaveTab = dynamic(
-  () => import("@/components/liff/tabs/leave-tab").then((m) => m.LeaveTab),
-  { loading: () => <TabLoading label="請假" /> }
-);
-const RecordsTab = dynamic(
-  () => import("@/components/liff/tabs/records-tab").then((m) => m.RecordsTab),
-  { loading: () => <TabLoading label="紀錄" /> }
-);
-const ForgotClockTab = dynamic(
-  () => import("@/components/liff/tabs/forgot-clock-tab").then((m) => m.ForgotClockTab),
-  { loading: () => <TabLoading label="忘記/修正打卡" /> }
-);
-const OvertimeTab = dynamic(
-  () => import("@/components/liff/tabs/overtime-tab").then((m) => m.OvertimeTab),
-  { loading: () => <TabLoading label="我要加班" /> }
-);
-const AdminInboxTab = dynamic(
-  () => import("@/components/liff/tabs/admin-inbox-tab").then((m) => m.AdminInboxTab),
-  { loading: () => <TabLoading label="待審中心" /> }
-);
-const AdminScheduleTab = dynamic(
-  () => import("@/components/liff/tabs/admin-schedule-tab").then((m) => m.AdminScheduleTab),
-  { loading: () => <TabLoading label="排班管理" /> }
-);
-const AdminPeopleTab = dynamic(
-  () => import("@/components/liff/tabs/admin-people-tab").then((m) => m.AdminPeopleTab),
-  { loading: () => <TabLoading label="同仁管理" /> }
-);
-const AdminPayTab = dynamic(
-  () => import("@/components/liff/tabs/admin-pay-tab").then((m) => m.AdminPayTab),
-  { loading: () => <TabLoading label="薪資統計" /> }
-);
-const AdminClocksTab = dynamic(
-  () => import("@/components/liff/tabs/admin-clocks-tab").then((m) => m.AdminClocksTab),
-  { loading: () => <TabLoading label="出勤數據" /> }
-);
-
-function TabLoading({ label }: { label: string }) {
-  return (
-    <div className="flex min-h-[40vh] flex-col items-center justify-center gap-2 px-6">
-      <div className="h-7 w-7 animate-spin rounded-full border-2 border-emerald-500 border-t-transparent" />
-      <p className="text-sm text-slate-500">載入{label}…</p>
-    </div>
-  );
-}
+import { readApiJson } from "@/lib/liff/read-api-json";
 
 declare global {
   interface Window {
@@ -239,17 +197,23 @@ export function MobileApp({ liffId, appUrl }: MobileAppProps) {
       credentials: "include",
       headers: token ? { "x-liff-admin": token } : undefined,
     })
-      .then(async (res) => {
-        const data = await res.json();
-        if (!res.ok) {
-          setAdminAccessError(data.error ?? "無法確認管理員權限");
+      .then((res) =>
+        readApiJson<{ isClinicAdmin?: boolean; adminHint?: string }>(
+          res,
+          "無法確認管理員權限"
+        )
+      )
+      .then((data) => {
+        setAdminAccessError(null);
+        setIsClinicAdmin(Boolean(data.isClinicAdmin) || Boolean(token));
+      })
+      .catch(() => {
+        if (token) {
+          setIsClinicAdmin(true);
+          setAdminAccessError(null);
           return;
         }
         setAdminAccessError(null);
-        setIsClinicAdmin(Boolean(data.isClinicAdmin));
-      })
-      .catch(() => {
-        setAdminAccessError("無法確認管理員權限，請稍後再試");
       });
   }, [lineUserId]);
 
@@ -301,18 +265,20 @@ export function MobileApp({ liffId, appUrl }: MobileAppProps) {
 
     if (tab === "clock") {
       return (
-        <ClockHomeTab
-          lineUserId={lineUserId}
-          displayName={displayName}
-          liffId={liffId}
-          appUrl={appUrl}
-          isClinicAdmin={isClinicAdmin}
-          adminAccessError={adminAccessError}
-          onAdminAccessRefresh={refreshAdminAccess}
-          mode={mode}
-          onModeChange={setMode}
-          onNavigate={setTab}
-        />
+        <SubpageErrorBoundary onBack={() => setTab("clock")}>
+          <ClockHomeTab
+            lineUserId={lineUserId}
+            displayName={displayName}
+            liffId={liffId}
+            appUrl={appUrl}
+            isClinicAdmin={isClinicAdmin}
+            adminAccessError={adminAccessError}
+            onAdminAccessRefresh={refreshAdminAccess}
+            mode={mode}
+            onModeChange={setMode}
+            onNavigate={setTab}
+          />
+        </SubpageErrorBoundary>
       );
     }
 
@@ -349,7 +315,9 @@ export function MobileApp({ liffId, appUrl }: MobileAppProps) {
     return (
       <div className="px-4 pb-8 pt-2">
         <SubPageHeader title={subTitle} onBack={goHome} />
-        {subPage}
+        <SubpageErrorBoundary key={tab} onBack={goHome}>
+          {subPage}
+        </SubpageErrorBoundary>
       </div>
     );
   }, [tab, mode, phase, lineUserId, displayName, liffId, error, appUrl, isClinicAdmin, adminAccessError, refreshAdminAccess]);

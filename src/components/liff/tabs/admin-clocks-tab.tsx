@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { adminRequestInit } from "@/lib/liff/admin-session";
+import { friendlyLiffError, readApiJson } from "@/lib/liff/read-api-json";
 
 interface AdminClocksTabProps {
   lineUserId: string;
@@ -36,12 +37,14 @@ export function AdminClocksTab({ lineUserId }: AdminClocksTabProps) {
       headers: req.headers,
     })
       .then(async (res) => {
-        const json = await res.json();
-        if (!res.ok) throw new Error(json.error ?? "載入失敗");
+        const json = await readApiJson<{ date?: string; records?: typeof records }>(
+          res,
+          "載入失敗"
+        );
         setDate(json.date ?? "");
         setRecords(json.records ?? []);
       })
-      .catch((err) => setError(err instanceof Error ? err.message : "載入失敗"))
+      .catch((err) => setError(friendlyLiffError(err, "載入失敗")))
       .finally(() => setLoading(false));
   }, [lineUserId]);
 

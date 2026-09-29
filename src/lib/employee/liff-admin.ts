@@ -60,21 +60,25 @@ async function loadEmployeeFlags(employeeId: string): Promise<{
 
 /** 把葉昱麟／forget50@hotmail.com 員工標記為診所管理員 */
 export async function stampKnownClinicAdmins(): Promise<void> {
-  const { data, error } = await supabase
-    .from("employees")
-    .select("id, name, email, is_clinic_admin");
-  if (error || !data) return;
+  try {
+    const { data, error } = await supabase
+      .from("employees")
+      .select("id, name, email, is_clinic_admin");
+    if (error || !data) return;
 
-  const ids = data
-    .filter(
-      (row) =>
-        !row.is_clinic_admin &&
-        (isClinicAdminName(row.name) || isClinicAdminEmail(row.email))
-    )
-    .map((row) => row.id);
-  if (ids.length === 0) return;
+    const ids = data
+      .filter(
+        (row) =>
+          !row.is_clinic_admin &&
+          (isClinicAdminName(row.name) || isClinicAdminEmail(row.email))
+      )
+      .map((row) => row.id);
+    if (ids.length === 0) return;
 
-  await supabase.from("employees").update({ is_clinic_admin: true }).in("id", ids);
+    await supabase.from("employees").update({ is_clinic_admin: true }).in("id", ids);
+  } catch {
+    // 欄位尚未 migration 時略過，不擋管理員進入
+  }
 }
 
 /** 依 LINE 綁定與員工資料解析 LIFF 管理員權限 */

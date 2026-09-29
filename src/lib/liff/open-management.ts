@@ -6,6 +6,7 @@
  */
 import { LIFF_ADMIN_QUERY } from "@/lib/auth/liff-dashboard-session";
 import { readStoredLiffAdminToken, storeLiffAdminToken } from "@/lib/liff/admin-session";
+import { parseApiJson } from "@/lib/liff/read-api-json";
 
 export function resolveAppBase(appUrl?: string): string {
   if (typeof window !== "undefined" && window.location?.origin) {
@@ -50,11 +51,8 @@ async function establishLiffAdminSession(
       token: readStoredLiffAdminToken(),
     }),
   });
-  const data = (await res.json().catch(() => ({}))) as {
-    error?: string;
-    token?: string;
-  };
-  if (!res.ok) {
+  const { ok, data } = await parseApiJson<{ error?: string; token?: string }>(res);
+  if (!ok) {
     const stored = readStoredLiffAdminToken();
     if (stored) return stored;
     throw new Error(data.error ?? "無法開啟後台，請先用 forget50@hotmail.com 解鎖管理員");
@@ -100,10 +98,14 @@ export async function openManagementPage(
       return;
     }
   } catch {
-    // fall through
+    // LINE WebView often throws Failed to execute; stay in-page instead.
   }
-  const opened = window.open(targetUrl, "_blank", "noopener,noreferrer");
-  if (opened) return;
+  try {
+    const opened = window.open(targetUrl, "_blank", "noopener,noreferrer");
+    if (opened) return;
+  } catch {
+    // blocked
+  }
 
   window.location.assign(targetUrl);
 }

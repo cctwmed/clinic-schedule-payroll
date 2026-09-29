@@ -6,6 +6,7 @@ import {
   formatDurationZh,
   minutesBetweenHhMm,
 } from "@/components/liff/time-24-input";
+import { friendlyLiffError, parseApiJson, readApiJson } from "@/lib/liff/read-api-json";
 
 interface OvertimeTabProps {
   lineUserId: string;
@@ -33,12 +34,12 @@ export function OvertimeTab({ lineUserId, onGoBind }: OvertimeTabProps) {
   useEffect(() => {
     fetch(`/api/mobile/overtime?lineUserId=${encodeURIComponent(lineUserId)}`)
       .then(async (res) => {
-        const data = await res.json();
-        if (res.status === 400 && data.error?.includes("綁定")) {
+        const { ok, status, data } = await parseApiJson<{ pendingCount?: number }>(res);
+        if (status === 400 && data.error?.includes("綁定")) {
           setNeedsBind(true);
           return;
         }
-        if (res.ok) setPendingCount(data.pendingCount ?? 0);
+        if (ok) setPendingCount(data.pendingCount ?? 0);
       })
       .catch(() => {});
   }, [lineUserId]);
@@ -63,14 +64,15 @@ export function OvertimeTab({ lineUserId, onGoBind }: OvertimeTabProps) {
           reason: reason.trim() || undefined,
         }),
       });
-      const data = await res.json();
-      if (!res.ok) {
-        setError(data.error ?? "送出失敗");
+      try {
+        const data = await readApiJson<{ durationMinutes?: number }>(res, "送出失敗");
+        setMessage(
+          `加班申請已送出（${formatDurationZh(data.durationMinutes ?? durationMinutes)}），請等候管理員審核`
+        );
+      } catch (err) {
+        setError(friendlyLiffError(err, "送出失敗"));
         return;
       }
-      setMessage(
-        `加班申請已送出（${formatDurationZh(data.durationMinutes ?? durationMinutes)}），請等候管理員審核`
-      );
       setPendingCount((c) => c + 1);
       setReason("");
     });

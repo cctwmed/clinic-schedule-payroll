@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { formatMoney } from "@/lib/payroll/calculator";
+import { friendlyLiffError, parseApiJson } from "@/lib/liff/read-api-json";
 
 interface PayslipTabProps {
   lineUserId: string;
@@ -77,21 +78,21 @@ export function PayslipTab({ lineUserId, onGoBind }: PayslipTabProps) {
       `/api/mobile/payslip?lineUserId=${encodeURIComponent(lineUserId)}&year=${year}&month=${month}`
     )
       .then(async (res) => {
-        const json = await res.json();
-        if (!res.ok) {
-          if (res.status === 400 && json.error?.includes("綁定")) {
+        const { ok, status, data } = await parseApiJson<PayslipData>(res);
+        if (!ok) {
+          if (status === 400 && data.error?.includes("綁定")) {
             setNeedsBind(true);
             setData(null);
             setError(null);
             return;
           }
-          throw new Error(json.error);
+          throw new Error(data.error);
         }
         setNeedsBind(false);
-        setData(json);
+        setData(data);
         setError(null);
       })
-      .catch((e) => setError(e instanceof Error ? e.message : "載入失敗"))
+      .catch((e) => setError(friendlyLiffError(e, "載入失敗")))
       .finally(() => setLoading(false));
   }, [lineUserId, year, month]);
 

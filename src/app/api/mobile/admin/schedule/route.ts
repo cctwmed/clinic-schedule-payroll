@@ -9,43 +9,51 @@ import {
 import type { ClinicSessionPattern } from "@/lib/schedules/golden-config";
 
 export async function GET(request: NextRequest) {
-  const lineUserId = request.nextUrl.searchParams.get("lineUserId");
-  if (!lineUserId) {
-    return NextResponse.json({ error: "缺少 lineUserId" }, { status: 400 });
-  }
-  const admin = await assertMobileAdmin({ lineUserId, request });
-  if (!admin.ok) {
-    return NextResponse.json({ error: admin.error }, { status: 403 });
-  }
+  try {
+    const lineUserId = request.nextUrl.searchParams.get("lineUserId");
+    if (!lineUserId) {
+      return NextResponse.json({ error: "缺少 lineUserId" }, { status: 400 });
+    }
+    const admin = await assertMobileAdmin({ lineUserId, request });
+    if (!admin.ok) {
+      return NextResponse.json({ error: admin.error }, { status: 403 });
+    }
 
-  const now = new Date();
-  const year = Number(request.nextUrl.searchParams.get("year")) || now.getFullYear();
-  const month = Number(request.nextUrl.searchParams.get("month")) || now.getMonth() + 1;
-  const data = await fetchSchedulePageData(year, month);
+    const now = new Date();
+    const year = Number(request.nextUrl.searchParams.get("year")) || now.getFullYear();
+    const month = Number(request.nextUrl.searchParams.get("month")) || now.getMonth() + 1;
+    const data = await fetchSchedulePageData(year, month);
 
-  return NextResponse.json({
-    year,
-    month,
-    scheduleId: data.schedule.id,
-    sessionPattern: data.sessionPattern,
-    staffingPerSession: data.staffingPerSession,
-    daysInMonth: data.daysInMonth,
-    employees: data.employees.map((e) => ({ id: e.id, name: e.name })),
-    shifts: data.shiftTypes
-      .filter((s) => data.sessionPattern === "three" || s.code !== "AFTERNOON")
-      .map((s) => ({
-        id: s.id,
-        code: s.code,
-        name: s.name,
-        clockIn: s.default_clock_in,
-        clockOut: s.default_clock_out,
-      })),
-    assignmentMap: data.assignmentMap,
-  });
+    return NextResponse.json({
+      year,
+      month,
+      scheduleId: data.schedule.id,
+      sessionPattern: data.sessionPattern,
+      staffingPerSession: data.staffingPerSession,
+      daysInMonth: data.daysInMonth,
+      employees: data.employees.map((e) => ({ id: e.id, name: e.name })),
+      shifts: data.shiftTypes
+        .filter((s) => data.sessionPattern === "three" || s.code !== "AFTERNOON")
+        .map((s) => ({
+          id: s.id,
+          code: s.code,
+          name: s.name,
+          clockIn: s.default_clock_in,
+          clockOut: s.default_clock_out,
+        })),
+      assignmentMap: data.assignmentMap,
+    });
+  } catch (err) {
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : "載入排班失敗" },
+      { status: 500 }
+    );
+  }
 }
 
 export async function POST(request: NextRequest) {
-  const body = (await request.json()) as {
+  try {
+    const body = (await request.json()) as {
     lineUserId?: string;
     token?: string;
     kind?: "assign" | "pattern" | "staffing";
@@ -113,4 +121,10 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: result.error }, { status: 400 });
   }
   return NextResponse.json({ success: true, message: "已儲存排班" });
+  } catch (err) {
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : "儲存失敗" },
+      { status: 500 }
+    );
+  }
 }

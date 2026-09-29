@@ -4,7 +4,8 @@ import { getDefaultClinic, taipeiToday } from "@/lib/clinic";
 import { supabase } from "@/lib/supabase";
 
 export async function GET(request: NextRequest) {
-  const lineUserId = request.nextUrl.searchParams.get("lineUserId");
+  try {
+    const lineUserId = request.nextUrl.searchParams.get("lineUserId");
   if (!lineUserId) {
     return NextResponse.json({ error: "缺少 lineUserId" }, { status: 400 });
   }
@@ -46,4 +47,10 @@ export async function GET(request: NextRequest) {
       };
     }),
   });
+  } catch (err) {
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : "載入出勤失敗" },
+      { status: 500 }
+    );
+  }
 }

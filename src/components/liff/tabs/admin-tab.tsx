@@ -35,7 +35,16 @@ export function AdminTab({ appUrl }: AdminTabProps) {
           <li key={link.href}>
             <button
               type="button"
-              onClick={() => openManagementPage(link.href, appUrl)}
+              onClick={() => {
+                void openManagementPage(link.href, appUrl).catch((err) => {
+                  console.error("[LIFF admin link]", err);
+                  window.alert(
+                    err instanceof Error
+                      ? err.message
+                      : "無法開啟後台，請改用電腦瀏覽器"
+                  );
+                });
+              }}
               className="flex w-full items-center gap-3 rounded-2xl border border-slate-200 bg-white p-4 text-left shadow-sm transition-colors hover:border-violet-300 hover:bg-violet-50/30"
             >
               <span className="text-2xl">{link.icon}</span>

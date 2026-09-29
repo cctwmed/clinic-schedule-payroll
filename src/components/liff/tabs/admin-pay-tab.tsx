@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { adminRequestInit } from "@/lib/liff/admin-session";
 import { formatMoney } from "@/lib/payroll/calculator";
+import { friendlyLiffError, readApiJson } from "@/lib/liff/read-api-json";
 
 interface AdminPayTabProps {
   lineUserId: string;
@@ -25,11 +26,10 @@ export function AdminPayTab({ lineUserId }: AdminPayTabProps) {
         `/api/mobile/admin/payroll?${req.query}&year=${year}&month=${month}`,
         { credentials: "include", headers: req.headers }
       );
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error ?? "載入薪資失敗");
+      const json = await readApiJson<{ items?: typeof items }>(res, "載入薪資失敗");
       setItems(json.items ?? []);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "載入薪資失敗");
+      setError(friendlyLiffError(err, "載入薪資失敗"));
     } finally {
       setLoading(false);
     }

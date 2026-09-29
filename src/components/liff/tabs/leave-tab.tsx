@@ -6,6 +6,7 @@ import {
   leavePayLabel,
   type LeaveRecordType,
 } from "@/lib/leave/leave-types";
+import { friendlyLiffError, parseApiJson, readApiJson } from "@/lib/liff/read-api-json";
 
 interface LeaveTabProps {
   lineUserId: string;
@@ -39,9 +40,9 @@ export function LeaveTab({ lineUserId, onGoBind }: LeaveTabProps) {
     setLoading(true);
     fetch(`/api/mobile/leave?lineUserId=${encodeURIComponent(lineUserId)}`)
       .then(async (res) => {
-        const data = await res.json();
-        if (!res.ok) {
-          if (res.status === 400 && data.error?.includes("綁定")) {
+        const { ok, status, data } = await parseApiJson<LeaveSummary>(res);
+        if (!ok) {
+          if (status === 400 && data.error?.includes("綁定")) {
             setNeedsBind(true);
             return;
           }
@@ -50,7 +51,7 @@ export function LeaveTab({ lineUserId, onGoBind }: LeaveTabProps) {
         setSummary(data);
         setNeedsBind(false);
       })
-      .catch((e) => setError(e instanceof Error ? e.message : "載入失敗"))
+      .catch((e) => setError(friendlyLiffError(e, "載入失敗")))
       .finally(() => setLoading(false));
   }
 
@@ -83,12 +84,13 @@ export function LeaveTab({ lineUserId, onGoBind }: LeaveTabProps) {
           reason: reason.trim() || undefined,
         }),
       });
-      const data = await res.json();
-      if (!res.ok) {
-        setError(data.error ?? "申請失敗");
+      try {
+        const data = await readApiJson<{ message?: string }>(res, "申請失敗");
+        setMessage(data.message ?? "請假申請已送出，待管理員核准");
+      } catch (err) {
+        setError(friendlyLiffError(err, "申請失敗"));
         return;
       }
-      setMessage(data.message ?? "請假申請已送出，待管理員核准");
       loadSummary();
       setReason("");
     });

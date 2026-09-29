@@ -194,7 +194,13 @@ export function FunctionGrid({ mode, onAction }: FunctionGridProps) {
           <button
             key={item.id}
             type="button"
-            onClick={() => onAction(item.action)}
+            onClick={() => {
+              try {
+                onAction(item.action);
+              } catch (err) {
+                console.error("[LIFF grid]", err);
+              }
+            }}
             className={`group flex min-h-[5.5rem] touch-manipulation flex-col items-center gap-2 rounded-2xl p-2 transition-transform duration-150 active:scale-95 ${
               item.accent ? "ring-2 ring-emerald-200/80" : ""
             }`}

@@ -5,6 +5,7 @@ import { leaveTypeLabel, type LeaveRecordType } from "@/lib/leave/leave-types";
 import type { ReactNode } from "react";
 import { formatDurationZh } from "@/lib/time-24";
 import { readStoredLiffAdminToken } from "@/lib/liff/admin-session";
+import { friendlyLiffError, readApiJson } from "@/lib/liff/read-api-json";
 
 interface AdminInboxTabProps {
   lineUserId: string;
@@ -69,11 +70,10 @@ export function AdminInboxTab({ lineUserId }: AdminInboxTabProps) {
         credentials: "include",
         headers: token ? { "x-liff-admin": token } : undefined,
       });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error ?? "載入待審失敗");
-      setData(json as InboxData);
+      const json = await readApiJson<InboxData>(res, "載入待審失敗");
+      setData(json);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "載入待審失敗");
+      setError(friendlyLiffError(err, "載入待審失敗"));
     } finally {
       setLoading(false);
     }
@@ -86,25 +86,25 @@ export function AdminInboxTab({ lineUserId }: AdminInboxTabProps) {
   function review(kind: Kind, id: string, approved: boolean) {
     setMessage(null);
     startTransition(async () => {
-      const res = await fetch("/api/mobile/admin/inbox", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({
-          lineUserId,
-          kind,
-          id,
-          approved,
-          token: readStoredLiffAdminToken(),
-        }),
-      });
-      const json = await res.json();
-      if (!res.ok) {
-        setError(json.error ?? "審核失敗");
-        return;
+      try {
+        const res = await fetch("/api/mobile/admin/inbox", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({
+            lineUserId,
+            kind,
+            id,
+            approved,
+            token: readStoredLiffAdminToken(),
+          }),
+        });
+        const json = await readApiJson<{ message?: string }>(res, "審核失敗");
+        setMessage(json.message ?? "已完成");
+        await load();
+      } catch (err) {
+        setError(friendlyLiffError(err, "審核失敗"));
       }
-      setMessage(json.message ?? "已完成");
-      await load();
     });
   }
 

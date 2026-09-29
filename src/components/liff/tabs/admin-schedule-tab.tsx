@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { adminRequestInit, readStoredLiffAdminToken } from "@/lib/liff/admin-session";
+import { friendlyLiffError, readApiJson } from "@/lib/liff/read-api-json";
 import { cellStaffIds, formatWorkDate, weekdayLabel } from "@/types/schedule";
 import { MAX_NURSES_PER_SESSION } from "@/lib/schedules/golden-config";
 
@@ -47,11 +48,10 @@ export function AdminScheduleTab({ lineUserId }: AdminScheduleTabProps) {
         `/api/mobile/admin/schedule?${req.query}&year=${year}&month=${month}`,
         { credentials: "include", headers: req.headers }
       );
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error ?? "載入排班失敗");
-      setData(json as ScheduleData);
+      const json = await readApiJson<ScheduleData>(res, "載入排班失敗");
+      setData(json);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "載入排班失敗");
+      setError(friendlyLiffError(err, "載入排班失敗"));
     } finally {
       setLoading(false);
     }
@@ -78,55 +78,55 @@ export function AdminScheduleTab({ lineUserId }: AdminScheduleTabProps) {
   async function saveCell(shift: ShiftCol, workDate: string, employeeIds: string[]) {
     if (!data) return;
     setMessage(null);
-    const req = adminRequestInit(lineUserId);
-    const res = await fetch("/api/mobile/admin/schedule", {
-      method: "POST",
-      credentials: "include",
-      headers: { "Content-Type": "application/json", ...req.headers },
-      body: JSON.stringify({
-        lineUserId,
-        token: readStoredLiffAdminToken(),
-        kind: "assign",
-        scheduleId: data.scheduleId,
-        workDate,
-        shiftTypeId: shift.id,
-        employeeIds,
-        clockIn: (shift.clockIn ?? "08:00").slice(0, 5),
-        clockOut: (shift.clockOut ?? "12:00").slice(0, 5),
-      }),
-    });
-    const json = await res.json();
-    if (!res.ok) {
-      setError(json.error ?? "儲存失敗");
-      return;
+    try {
+      const req = adminRequestInit(lineUserId);
+      const res = await fetch("/api/mobile/admin/schedule", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json", ...req.headers },
+        body: JSON.stringify({
+          lineUserId,
+          token: readStoredLiffAdminToken(),
+          kind: "assign",
+          scheduleId: data.scheduleId,
+          workDate,
+          shiftTypeId: shift.id,
+          employeeIds,
+          clockIn: (shift.clockIn ?? "08:00").slice(0, 5),
+          clockOut: (shift.clockOut ?? "12:00").slice(0, 5),
+        }),
+      });
+      const json = await readApiJson<{ message?: string }>(res, "儲存失敗");
+      setMessage(json.message ?? "已儲存");
+      await load();
+    } catch (err) {
+      setError(friendlyLiffError(err, "儲存失敗"));
     }
-    setMessage(json.message ?? "已儲存");
-    await load();
   }
 
   async function saveMeta(kind: "pattern" | "staffing", value: string | number) {
     if (!data) return;
-    const req = adminRequestInit(lineUserId);
-    const res = await fetch("/api/mobile/admin/schedule", {
-      method: "POST",
-      credentials: "include",
-      headers: { "Content-Type": "application/json", ...req.headers },
-      body: JSON.stringify({
-        lineUserId,
-        token: readStoredLiffAdminToken(),
-        kind,
-        scheduleId: data.scheduleId,
-        pattern: kind === "pattern" ? value : undefined,
-        staffingPerSession: kind === "staffing" ? Number(value) : undefined,
-      }),
-    });
-    const json = await res.json();
-    if (!res.ok) {
-      setError(json.error ?? "更新失敗");
-      return;
+    try {
+      const req = adminRequestInit(lineUserId);
+      const res = await fetch("/api/mobile/admin/schedule", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json", ...req.headers },
+        body: JSON.stringify({
+          lineUserId,
+          token: readStoredLiffAdminToken(),
+          kind,
+          scheduleId: data.scheduleId,
+          pattern: kind === "pattern" ? value : undefined,
+          staffingPerSession: kind === "staffing" ? Number(value) : undefined,
+        }),
+      });
+      const json = await readApiJson<{ message?: string }>(res, "更新失敗");
+      setMessage(json.message ?? "已更新");
+      await load();
+    } catch (err) {
+      setError(friendlyLiffError(err, "更新失敗"));
     }
-    setMessage(json.message ?? "已更新");
-    await load();
   }
 
   if (loading && !data) {
@@ -146,6 +146,7 @@ export function AdminScheduleTab({ lineUserId }: AdminScheduleTabProps) {
           type="button"
           onClick={() => changeMonth(-1)}
           className="min-h-11 rounded-lg border border-slate-800 px-3 font-semibold text-black"
+          style={{ color: "#000000" }}
         >
           ← 上個月
         </button>
@@ -156,6 +157,7 @@ export function AdminScheduleTab({ lineUserId }: AdminScheduleTabProps) {
           type="button"
           onClick={() => changeMonth(1)}
           className="min-h-11 rounded-lg border border-slate-800 px-3 font-semibold text-black"
+          style={{ color: "#000000" }}
         >
           下個月 →
         </button>
@@ -207,58 +209,65 @@ export function AdminScheduleTab({ lineUserId }: AdminScheduleTabProps) {
             <div className="mt-2 space-y-2">
               {data.shifts.map((shift) => {
                 const selected = cellStaffIds(data.assignmentMap[workDate]?.[shift.id]);
-                const addable = data.employees.filter((emp) => !selected.includes(emp.id));
-                const canAdd = selected.length < data.staffingPerSession && addable.length > 0;
+                const isWorkShift =
+                  shift.code === "MORNING" ||
+                  shift.code === "AFTERNOON" ||
+                  shift.code === "EVENING";
+                const limit = isWorkShift ? MAX_NURSES_PER_SESSION : 1;
+                const visible = Math.min(
+                  limit,
+                  Math.max(isWorkShift ? 2 : 1, selected.length + (selected.length < limit ? 1 : 0))
+                );
+                const slots = Array.from({ length: visible }, (_, index) => selected[index] ?? "");
                 return (
                   <div key={shift.id} className="rounded-xl border border-slate-200 bg-slate-50 p-2">
                     <p className="text-xs font-semibold text-black">
                       {shift.name} {shift.clockIn?.slice(0, 5)}–{shift.clockOut?.slice(0, 5)}
                     </p>
-                    <div className="mt-1 flex flex-wrap gap-1">
-                      {selected.length === 0 && (
-                        <span className="text-xs font-semibold text-black">尚未排人</span>
-                      )}
-                      {selected.map((id) => {
-                        const emp = data.employees.find((item) => item.id === id);
+                    <div className="mt-1 space-y-1">
+                      {slots.map((id, index) => {
+                        const used = new Set(
+                          slots.filter((item, itemIndex) => item && itemIndex !== index)
+                        );
                         return (
-                          <button
-                            key={id}
-                            type="button"
-                            onClick={() =>
-                              void saveCell(
-                                shift,
-                                workDate,
-                                selected.filter((item) => item !== id)
-                              )
-                            }
-                            className="rounded-full bg-white px-2 py-1 text-xs font-semibold text-black"
-                          >
-                            {emp?.name ?? "未知"} ×
-                          </button>
+                          <label key={`${shift.id}-${index}`} className="block">
+                            <span className="text-[11px] font-semibold text-black">
+                              第 {index + 1} 人
+                            </span>
+                            <select
+                              value={id}
+                              onChange={(e) => {
+                                const next = selected.slice();
+                                const value = e.target.value;
+                                if (!value) {
+                                  if (index < next.length) next.splice(index, 1);
+                                } else if (index < next.length) {
+                                  next[index] = value;
+                                } else {
+                                  next.push(value);
+                                }
+                                void saveCell(
+                                  shift,
+                                  workDate,
+                                  [...new Set(next.filter(Boolean))]
+                                );
+                              }}
+                              className="mt-0.5 min-h-11 w-full rounded-lg border border-slate-800 bg-white px-2 text-sm font-semibold text-black"
+                              style={{ color: "#000000" }}
+                            >
+                              <option value="">未指定</option>
+                              {data.employees
+                                .filter((emp) => !used.has(emp.id) || emp.id === id)
+                                .map((emp) => (
+                                  <option key={emp.id} value={emp.id}>
+                                    {emp.name}
+                                  </option>
+                                ))}
+                            </select>
+                          </label>
                         );
                       })}
                     </div>
-                    {canAdd && (
-                      <select
-                        value=""
-                        onChange={(e) => {
-                          if (!e.target.value) return;
-                          void saveCell(shift, workDate, [...selected, e.target.value]);
-                        }}
-                        className="mt-2 min-h-11 w-full rounded-lg border border-slate-800 bg-white px-2 text-sm font-semibold text-black"
-                      >
-                        <option value="">
-                          {selected.length === 0
-                            ? "＋ 加入護理師（一診可多人）"
-                            : `＋ 再加一位（${selected.length}／${data.staffingPerSession}）`}
-                        </option>
-                        {addable.map((emp) => (
-                          <option key={emp.id} value={emp.id}>
-                            {emp.name}
-                          </option>
-                        ))}
-                      </select>
-                    )}
                   </div>
                 );
               })}

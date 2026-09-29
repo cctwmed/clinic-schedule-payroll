@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { friendlyLiffError, parseApiJson } from "@/lib/liff/read-api-json";
 
 interface ScheduleTabProps {
   lineUserId: string;
@@ -29,9 +30,9 @@ export function ScheduleTab({ lineUserId, onGoBind }: ScheduleTabProps) {
       `/api/mobile/schedule?lineUserId=${encodeURIComponent(lineUserId)}&year=${year}&month=${month}`
     )
       .then(async (res) => {
-        const data = await res.json();
-        if (!res.ok) {
-          if (res.status === 400 && data.error?.includes("綁定")) {
+        const { ok, status, data } = await parseApiJson<{ days?: DayRow[] }>(res);
+        if (!ok) {
+          if (status === 400 && data.error?.includes("綁定")) {
             setNeedsBind(true);
             setDays([]);
             setError(null);
@@ -43,7 +44,7 @@ export function ScheduleTab({ lineUserId, onGoBind }: ScheduleTabProps) {
         setDays(data.days ?? []);
         setError(null);
       })
-      .catch((e) => setError(e instanceof Error ? e.message : "載入失敗"))
+      .catch((e) => setError(friendlyLiffError(e, "載入失敗")))
       .finally(() => setLoading(false));
   }, [lineUserId, year, month]);
 
@@ -72,6 +73,7 @@ export function ScheduleTab({ lineUserId, onGoBind }: ScheduleTabProps) {
           <button
             onClick={() => changeMonth(-1)}
             className="rounded-lg border border-slate-800 bg-white px-3 py-1 text-sm font-semibold text-black"
+            style={{ color: "#000000" }}
           >
             ← 上個月
           </button>
@@ -81,6 +83,7 @@ export function ScheduleTab({ lineUserId, onGoBind }: ScheduleTabProps) {
           <button
             onClick={() => changeMonth(1)}
             className="rounded-lg border border-slate-800 bg-white px-3 py-1 text-sm font-semibold text-black"
+            style={{ color: "#000000" }}
           >
             下個月 →
           </button>

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState, useTransition } from "react";
 import { formatShiftClockActionLabel } from "@/lib/clock/shift-labels";
 import { Time24Input } from "@/components/liff/time-24-input";
+import { friendlyLiffError, parseApiJson, readApiJson } from "@/lib/liff/read-api-json";
 
 interface ForgotClockTabProps {
   lineUserId: string;
@@ -43,12 +44,15 @@ export function ForgotClockTab({ lineUserId, onGoBind }: ForgotClockTabProps) {
       const res = await fetch(
         `/api/mobile/forgot-clock?lineUserId=${encodeURIComponent(lineUserId)}&workDate=${workDate}`
       );
-      const data = await res.json();
-      if (res.status === 400 && data.error?.includes("綁定")) {
+      const { ok, status, data } = await parseApiJson<{
+        pendingCount?: number;
+        sessions?: DaySession[];
+      }>(res);
+      if (status === 400 && data.error?.includes("綁定")) {
         setNeedsBind(true);
         return;
       }
-      if (!res.ok) throw new Error(data.error);
+      if (!ok) throw new Error(data.error);
       setPendingCount(data.pendingCount ?? 0);
       const list = (data.sessions ?? []) as DaySession[];
       setSessions(list);
@@ -56,7 +60,7 @@ export function ForgotClockTab({ lineUserId, onGoBind }: ForgotClockTabProps) {
         list.some((s) => s.assignmentId === prev) ? prev : list[0]?.assignmentId ?? ""
       );
     } catch (e) {
-      setError(e instanceof Error ? e.message : "載入班表失敗");
+      setError(friendlyLiffError(e, "載入班表失敗"));
     } finally {
       setSessionsLoading(false);
     }
@@ -98,9 +102,10 @@ export function ForgotClockTab({ lineUserId, onGoBind }: ForgotClockTabProps) {
           reason: reason.trim() || undefined,
         }),
       });
-      const data = await res.json();
-      if (!res.ok) {
-        setError(data.error ?? "送出失敗");
+      try {
+        await readApiJson(res, "送出失敗");
+      } catch (err) {
+        setError(friendlyLiffError(err, "送出失敗"));
         return;
       }
       setMessage("申請已送出，請等候管理員於後台審核（忘記→補登、打錯→修正）");
