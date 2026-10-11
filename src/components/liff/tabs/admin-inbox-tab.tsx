@@ -16,6 +16,7 @@ interface AdminInboxTabProps {
 type Kind = "leave" | "correction" | "overtime" | "early";
 
 interface InboxData {
+  warnings?: string[];
   leaves: {
     id: string;
     employeeName: string;
@@ -163,6 +164,14 @@ export function AdminInboxTab({ lineUserId, section = "all" }: AdminInboxTabProp
           </button>
         ))}
       </div>
+
+      {(data?.warnings?.length ?? 0) > 0 && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+          {(data?.warnings ?? []).map((warning) => (
+            <p key={warning}>{warning}</p>
+          ))}
+        </div>
+      )}
 
       {message && (
         <p className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">

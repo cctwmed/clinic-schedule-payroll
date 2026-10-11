@@ -57,6 +57,15 @@ const SUB_PAGE_TITLES: Partial<Record<MobileTab, string>> = {
   "admin-clocks": "出勤數據",
 };
 
+function readInitialInboxSection(): AdminInboxSection {
+  if (typeof window === "undefined") return "all";
+  const inbox = new URLSearchParams(window.location.search).get("inbox");
+  if (inbox === "leave" || inbox === "abnormal" || inbox === "overtime" || inbox === "all") {
+    return inbox;
+  }
+  return "all";
+}
+
 function readInitialTab(): MobileTab {
   if (typeof window === "undefined") return "clock";
   const tab = new URLSearchParams(window.location.search).get("tab");
@@ -95,7 +104,7 @@ function buildLiffRedirectUri(): string {
 export function MobileApp({ liffId, appUrl }: MobileAppProps) {
   const [mode, setMode] = useState<LiffMode>("employee");
   const [tab, setTab] = useState<MobileTab>("clock");
-  const [inboxSection, setInboxSection] = useState<AdminInboxSection>("all");
+  const [inboxSection, setInboxSection] = useState<AdminInboxSection>(readInitialInboxSection);
   const [phase, setPhase] = useState<InitPhase>("loading-sdk");
   const [lineUserId, setLineUserId] = useState<string | null>(null);
   const [displayName, setDisplayName] = useState("");

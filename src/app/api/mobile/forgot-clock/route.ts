@@ -3,6 +3,7 @@ import { getDefaultClinic } from "@/lib/clinic";
 import { getShiftDisplayName } from "@/lib/clock/shift-labels";
 import { filterWorkAssignments, type WorkAssignment } from "@/lib/clock/session";
 import { supabase } from "@/lib/supabase";
+import { notifyClinicAdminsOfReview } from "@/lib/line/notify-admins";
 
 async function resolveEmployeeId(lineUserId: string): Promise<string | null> {
   const { data } = await supabase
@@ -156,6 +157,18 @@ export async function POST(request: NextRequest) {
       }
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
+
+    const { data: emp } = await supabase
+      .from("employees")
+      .select("name")
+      .eq("id", employeeId)
+      .maybeSingle();
+    await notifyClinicAdminsOfReview({
+      kind: "correction",
+      employeeName: emp?.name ?? "同仁",
+      summary: `${workDate} ${clockType === "clock_out" ? "下班" : "上班"} ${requestedTime.slice(0, 5)}`,
+      excludeLineUserId: lineUserId,
+    });
 
     return NextResponse.json({ success: true });
   } catch (err) {

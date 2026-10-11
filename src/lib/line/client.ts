@@ -32,12 +32,22 @@ export function getLineConfig() {
 
 export function getLiffClockUrl(
   action?: "clock_in" | "clock_out",
-  tab?: "clock" | "schedule" | "payslip" | "leave" | "records" | "forgot"
+  tab?:
+    | "clock"
+    | "schedule"
+    | "payslip"
+    | "leave"
+    | "records"
+    | "forgot"
+    | "overtime"
+    | "admin-inbox",
+  inbox?: "all" | "leave" | "abnormal" | "overtime"
 ): string {
   const { liffId, appUrl } = getLineConfig();
   const params = new URLSearchParams();
   if (action) params.set("action", action);
   if (tab && tab !== "clock") params.set("tab", tab);
+  if (inbox && inbox !== "all") params.set("inbox", inbox);
   const query = params.toString() ? `?${params.toString()}` : "";
   if (liffId) return `https://liff.line.me/${liffId}${query}`;
   return `${appUrl}/liff/clock${query}`;
@@ -283,7 +293,32 @@ export function buildSchedulePublishedMessage(
       "",
       shiftSummary || "（本月尚無排班紀錄）",
       "",
-      "如需打卡請輸入「今日打卡」或點選：",
+      liffUrl,
+    ].join("\n"),
+  };
+}
+
+export function buildScheduleAmendedMessage(
+  employeeName: string,
+  year: number,
+  month: number,
+  workDate: string,
+  shiftName: string,
+  change: "added" | "removed"
+): LineTextMessage {
+  const liffUrl = getLiffClockUrl();
+  const action =
+    change === "added"
+      ? `已把您排入 ${workDate} ${shiftName}`
+      : `已將您從 ${workDate} ${shiftName} 移除`;
+  return {
+    type: "text",
+    text: [
+      `📝 ${employeeName} 您好，${year} 年 ${month} 月班表有修正：`,
+      "",
+      action,
+      "",
+      "請到打卡頁查看最新班表：",
       liffUrl,
     ].join("\n"),
   };

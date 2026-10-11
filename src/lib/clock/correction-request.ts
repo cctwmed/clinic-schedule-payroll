@@ -40,33 +40,43 @@ export async function fetchPendingCorrectionRequests(
   const { data, error } = await supabase
     .from("clock_correction_requests")
     .select(
-      `
-      id,
-      employee_id,
-      work_date,
-      clock_type,
-      requested_time,
-      reason,
-      status,
-      created_at,
-      employees(name, employee_no)
-    `
+      "id, employee_id, work_date, clock_type, requested_time, reason, status, created_at"
     )
     .eq("clinic_id", clinicId)
     .eq("status", "pending")
     .order("created_at", { ascending: false });
 
   if (error) {
-    if (error.message.includes("clock_correction_requests")) return [];
+    if (
+      error.message.includes("clock_correction_requests") ||
+      error.message.includes("schema cache")
+    ) {
+      throw new Error("補登申請表尚未建立。請到 Supabase SQL Editor 執行「啟動加班與審核.sql」");
+    }
     throw new Error(error.message);
   }
 
+  const employeeIds = [...new Set((data ?? []).map((r) => String(r.employee_id)))];
+  const empById = new Map<string, { name: string; employee_no: string }>();
+  if (employeeIds.length > 0) {
+    const { data: emps } = await supabase
+      .from("employees")
+      .select("id, name, employee_no")
+      .in("id", employeeIds);
+    for (const emp of emps ?? []) {
+      empById.set(String(emp.id), {
+        name: emp.name ?? "同仁",
+        employee_no: String(emp.employee_no ?? ""),
+      });
+    }
+  }
+
   return (data ?? []).map((r) => {
-    const emp = parseEmployeeJoin(r.employees);
+    const emp = empById.get(String(r.employee_id));
     return {
       id: String(r.id),
       employee_id: String(r.employee_id),
-      employee_name: emp?.name ?? "—",
+      employee_name: emp?.name ?? "同仁",
       employee_no: emp?.employee_no ?? "",
       work_date: String(r.work_date),
       clock_type: String(r.clock_type),

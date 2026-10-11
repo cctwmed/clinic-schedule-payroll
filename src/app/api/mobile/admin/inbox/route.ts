@@ -33,16 +33,22 @@ export async function GET(request: NextRequest) {
     }
 
     const clinic = await getDefaultClinic();
-    const empty = <T,>(fallback: T) =>
-      (err: unknown): T => {
-        console.error("[admin/inbox]", err);
-        return fallback;
-      };
+    const warnings: string[] = [];
+    const loadQueue = async <T,>(label: string, fn: () => Promise<T[]>): Promise<T[]> => {
+      try {
+        return await fn();
+      } catch (err) {
+        const message = err instanceof Error ? err.message : `${label}載入失敗`;
+        console.error(`[admin/inbox] ${label}`, err);
+        warnings.push(`${label}：${message}`);
+        return [];
+      }
+    };
     const [leaves, corrections, overtime, early] = await Promise.all([
-      fetchLeaveRecords(clinic.id, { status: "pending" }).catch(empty([])),
-      fetchPendingCorrectionRequests(clinic.id).catch(empty([])),
-      listPendingOvertimeRequests(clinic.id).catch(empty([])),
-      listPendingEarlyAbnormal(clinic.id).catch(empty([])),
+      loadQueue("請假", () => fetchLeaveRecords(clinic.id, { status: "pending" })),
+      loadQueue("補打卡", () => fetchPendingCorrectionRequests(clinic.id)),
+      loadQueue("加班", () => listPendingOvertimeRequests(clinic.id)),
+      loadQueue("提早打卡", () => listPendingEarlyAbnormal(clinic.id)),
     ]);
 
     return NextResponse.json({
@@ -57,6 +63,7 @@ export async function GET(request: NextRequest) {
       corrections,
       overtime,
       early,
+      warnings,
     });
   } catch (err) {
     return NextResponse.json(

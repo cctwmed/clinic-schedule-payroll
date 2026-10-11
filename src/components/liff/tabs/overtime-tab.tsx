@@ -13,8 +13,17 @@ interface OvertimeTabProps {
   onGoBind?: () => void;
 }
 
+function taipeiTodayClient(): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Taipei",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+}
+
 export function OvertimeTab({ lineUserId, onGoBind }: OvertimeTabProps) {
-  const [workDate, setWorkDate] = useState(new Date().toISOString().slice(0, 10));
+  const [workDate, setWorkDate] = useState(taipeiTodayClient);
   const [startTime, setStartTime] = useState("20:00");
   const [endTime, setEndTime] = useState("22:00");
   const [reason, setReason] = useState("");
@@ -22,6 +31,9 @@ export function OvertimeTab({ lineUserId, onGoBind }: OvertimeTabProps) {
   const [message, setMessage] = useState<string | null>(null);
   const [needsBind, setNeedsBind] = useState(false);
   const [pendingCount, setPendingCount] = useState(0);
+  const [pending, setPending] = useState<
+    { id: string; work_date: string; start_time: string; end_time: string; duration_minutes: number }[]
+  >([]);
   const [isPending, startTransition] = useTransition();
 
   const durationMinutes = useMemo(
@@ -31,17 +43,27 @@ export function OvertimeTab({ lineUserId, onGoBind }: OvertimeTabProps) {
   const durationLabel = formatDurationZh(durationMinutes);
   const crossesMidnight = endTime <= startTime;
 
-  useEffect(() => {
+  function loadPending() {
     fetch(`/api/mobile/overtime?lineUserId=${encodeURIComponent(lineUserId)}`)
       .then(async (res) => {
-        const { ok, status, data } = await parseApiJson<{ pendingCount?: number }>(res);
+        const { ok, status, data } = await parseApiJson<{
+          pendingCount?: number;
+          pending?: typeof pending;
+        }>(res);
         if (status === 400 && data.error?.includes("綁定")) {
           setNeedsBind(true);
           return;
         }
-        if (ok) setPendingCount(data.pendingCount ?? 0);
+        if (ok) {
+          setPendingCount(data.pendingCount ?? 0);
+          setPending(data.pending ?? []);
+        }
       })
       .catch(() => {});
+  }
+
+  useEffect(() => {
+    loadPending();
   }, [lineUserId]);
 
   function handleSubmit(e: React.FormEvent) {
@@ -73,8 +95,8 @@ export function OvertimeTab({ lineUserId, onGoBind }: OvertimeTabProps) {
         setError(friendlyLiffError(err, "送出失敗"));
         return;
       }
-      setPendingCount((c) => c + 1);
       setReason("");
+      loadPending();
     });
   }
 
@@ -114,6 +136,22 @@ export function OvertimeTab({ lineUserId, onGoBind }: OvertimeTabProps) {
             <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
               {message}
             </div>
+          )}
+
+          {pending.length > 0 && (
+            <section className="rounded-2xl border border-violet-200 bg-white p-4">
+              <p className="text-sm font-semibold text-violet-900">
+                已送出、待管理員審核 {pending.length} 筆
+              </p>
+              <ul className="mt-2 space-y-1.5">
+                {pending.map((item) => (
+                  <li key={item.id} className="text-xs text-slate-700">
+                    {item.work_date} {item.start_time}–{item.end_time}（
+                    {formatDurationZh(item.duration_minutes)}）
+                  </li>
+                ))}
+              </ul>
+            </section>
           )}
 
           <form onSubmit={handleSubmit} className="rounded-2xl bg-white p-4 shadow-sm">

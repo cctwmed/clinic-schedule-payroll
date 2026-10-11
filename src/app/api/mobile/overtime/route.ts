@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getDefaultClinic } from "@/lib/clinic";
+import { getDefaultClinic, taipeiToday } from "@/lib/clinic";
 import {
   countPendingOvertime,
   createOvertimeRequest,
+  listMyPendingOvertime,
 } from "@/lib/clock/overtime-request";
+import { notifyClinicAdminsOfReview } from "@/lib/line/notify-admins";
 import { minutesBetweenHhMm, normalizeHhMm } from "@/lib/time-24";
 import { supabase } from "@/lib/supabase";
 
@@ -26,8 +28,11 @@ export async function GET(request: NextRequest) {
   if (!employeeId) {
     return NextResponse.json({ error: "請先完成身份綁定" }, { status: 400 });
   }
-  const pendingCount = await countPendingOvertime(employeeId);
-  return NextResponse.json({ pendingCount });
+  const [pendingCount, pending] = await Promise.all([
+    countPendingOvertime(employeeId),
+    listMyPendingOvertime(employeeId),
+  ]);
+  return NextResponse.json({ pendingCount, pending, today: taipeiToday() });
 }
 
 export async function POST(request: NextRequest) {
@@ -75,6 +80,18 @@ export async function POST(request: NextRequest) {
     if (!result.ok) {
       return NextResponse.json({ error: result.error }, { status: 503 });
     }
+
+    const { data: emp } = await supabase
+      .from("employees")
+      .select("name")
+      .eq("id", employeeId)
+      .maybeSingle();
+    await notifyClinicAdminsOfReview({
+      kind: "overtime",
+      employeeName: emp?.name ?? "同仁",
+      summary: `${workDate} ${start}–${end}（${durationMinutes} 分）`,
+      excludeLineUserId: lineUserId,
+    });
 
     return NextResponse.json({
       success: true,

@@ -19,6 +19,7 @@ import {
   resolveEmployeeArrivalDate,
 } from "@/lib/leave/annual-leave";
 import { syncEmployeeLeaveRecord } from "@/lib/leave/service";
+import { notifyClinicAdminsOfReview } from "@/lib/line/notify-admins";
 
 async function resolveEmployeeId(lineUserId: string): Promise<string | null> {
   const { data } = await supabase
@@ -150,6 +151,18 @@ export async function POST(request: NextRequest) {
     const dayCount = "dayCount" in result ? result.dayCount : 1;
     const rangeNote =
       dayCount > 1 ? `（${rangeStart}～${rangeEnd}，共 ${dayCount} 天）` : "";
+
+    const { data: empRow } = await supabase
+      .from("employees")
+      .select("name")
+      .eq("id", employeeId)
+      .maybeSingle();
+    await notifyClinicAdminsOfReview({
+      kind: "leave",
+      employeeName: empRow?.name ?? "同仁",
+      summary: `${leaveTypeLabel(leaveType)} ${rangeStart}${rangeEnd && rangeEnd !== rangeStart ? `～${rangeEnd}` : ""}`,
+      excludeLineUserId: lineUserId,
+    });
 
     return NextResponse.json({
       success: true,
