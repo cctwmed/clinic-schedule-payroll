@@ -56,13 +56,20 @@ export async function POST(request: NextRequest) {
     const body = (await request.json()) as {
     lineUserId?: string;
     token?: string;
-    kind?: "assign" | "pattern" | "staffing";
+    kind?: "assign" | "assign-batch" | "pattern" | "staffing";
     scheduleId?: string;
     workDate?: string;
     shiftTypeId?: string;
     employeeIds?: string[];
     clockIn?: string;
     clockOut?: string;
+    cells?: {
+      workDate: string;
+      shiftTypeId: string;
+      employeeIds: string[];
+      clockIn: string;
+      clockOut: string;
+    }[];
     pattern?: ClinicSessionPattern;
     staffingPerSession?: number;
   };
@@ -96,6 +103,33 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: true,
       message: `一診可排 ${result.staffingPerSession} 人`,
+    });
+  }
+
+  if (body.kind === "assign-batch" && body.scheduleId) {
+    const cells = body.cells ?? [];
+    if (cells.length === 0) {
+      return NextResponse.json({ error: "沒有要儲存的更正" }, { status: 400 });
+    }
+    for (const cell of cells) {
+      const result = await saveScheduleAssignment(
+        body.scheduleId,
+        cell.workDate,
+        cell.shiftTypeId,
+        cell.employeeIds ?? [],
+        cell.clockIn,
+        cell.clockOut
+      );
+      if (!result.success) {
+        return NextResponse.json(
+          { error: `${cell.workDate}：${result.error}` },
+          { status: 400 }
+        );
+      }
+    }
+    return NextResponse.json({
+      success: true,
+      message: `已儲存 ${cells.length} 處更正`,
     });
   }
 
