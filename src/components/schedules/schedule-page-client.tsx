@@ -21,7 +21,13 @@ import type { PublicHoliday } from "@/lib/holidays/taiwan-public-holidays";
 import type { ComplianceIssue } from "@/lib/compliance/types";
 import type { Clinic } from "@/lib/clinic";
 import { GOLDEN_SCHEDULE } from "@/lib/shift-templates";
-import { getRotationLegend } from "@/lib/schedules/golden-rotation";
+import { getGoldenGeneratorLegend, splitPoolsFromPeople } from "@/lib/schedules/golden-generator";
+import {
+  ATTENDANT_KIND_LABELS,
+  classifyAttendantKind,
+  listManualGoldenRules,
+  listOneClickGoldenRules,
+} from "@/lib/schedules/golden-rulebook";
 import type {
   GoldenScheduleConfig,
   ClosureRecord,
@@ -40,6 +46,8 @@ import {
   normalizeScheduleMode,
   normalizeSessionPattern,
   isPublishedAmendment,
+  snapshotCellKey,
+  uniqueStaffIds,
   type PublishedAssignmentSnapshot,
 } from "@/lib/schedules/golden-config";
 import { isTaiwanPublicHoliday } from "@/lib/holidays/taiwan-public-holidays";
@@ -109,16 +117,22 @@ export function SchedulePageClient({
   const [rotationMode, setRotationMode] = useState<ScheduleRotationMode>(
     normalizeScheduleMode(goldenConfig?.mode)
   );
-  const [employeeAId, setEmployeeAId] = useState(goldenConfig?.employeeAId ?? "");
-  const [employeeBId, setEmployeeBId] = useState(goldenConfig?.employeeBId ?? "");
-  const [employeeCId, setEmployeeCId] = useState(goldenConfig?.employeeCId ?? "");
-  const [oddWeekTrackForA, setOddWeekTrackForA] = useState<1 | 2>(
-    goldenConfig?.oddWeekTrackForA ?? 1
-  );
+  const [staffPoolIds, setStaffPoolIds] = useState<string[]>(() => {
+    if (goldenConfig?.staffPoolIds?.length) return uniqueStaffIds(goldenConfig.staffPoolIds);
+    const legacy = uniqueStaffIds([
+      goldenConfig?.employeeAId,
+      goldenConfig?.employeeBId,
+      goldenConfig?.employeeCId,
+    ]);
+    return legacy.length > 0 ? legacy : employees
+      .filter((emp) => classifyAttendantKind(emp) !== "family")
+      .map((emp) => emp.id);
+  });
   const [sessionPattern, setSessionPattern] = useState<ClinicSessionPattern>(
     normalizeSessionPattern(initialPattern)
   );
   const [staffingPerSession, setStaffingPerSession] = useState(initialStaffing);
+  const [ruleId, setRuleId] = useState(goldenConfig?.ruleId ?? "");
   const [morningIn, setMorningIn] = useState(
     initialTimes?.MORNING?.clockIn ?? GOLDEN_SCHEDULE.MORNING_IN
   );
@@ -147,17 +161,33 @@ export function SchedulePageClient({
   const [pendingCell, setPendingCell] = useState<string | null>(null);
   const [isNavigating, setIsNavigating] = useState(false);
   const [isPending, startTransition] = useTransition();
+  const [saveOk, setSaveOk] = useState<boolean | null>(null);
+  const [history, setHistory] = useState<
+    { workDate: string; shift: ShiftType; prev: string[] }[]
+  >([]);
 
   useEffect(() => {
     setAssignmentMap(initialMap);
     setClosures(initialClosures);
     setRotationMode(normalizeScheduleMode(goldenConfig?.mode));
-    setEmployeeAId(goldenConfig?.employeeAId ?? "");
-    setEmployeeBId(goldenConfig?.employeeBId ?? "");
-    setEmployeeCId(goldenConfig?.employeeCId ?? "");
-    setOddWeekTrackForA(goldenConfig?.oddWeekTrackForA ?? 1);
+    const nextPool = uniqueStaffIds(
+      goldenConfig?.staffPoolIds?.length
+        ? goldenConfig.staffPoolIds
+        : [goldenConfig?.employeeAId, goldenConfig?.employeeBId, goldenConfig?.employeeCId]
+    ).filter((id) => {
+      const emp = employees.find((row) => row.id === id);
+      return emp ? classifyAttendantKind(emp) !== "family" : true;
+    });
+    setStaffPoolIds(
+      nextPool.length > 0
+        ? nextPool
+        : employees
+            .filter((emp) => classifyAttendantKind(emp) !== "family")
+            .map((emp) => emp.id)
+    );
     setSessionPattern(normalizeSessionPattern(initialPattern));
     setStaffingPerSession(initialStaffing);
+    setRuleId(goldenConfig?.ruleId ?? "");
     setMorningIn(initialTimes?.MORNING?.clockIn ?? GOLDEN_SCHEDULE.MORNING_IN);
     setMorningOut(initialTimes?.MORNING?.clockOut ?? GOLDEN_SCHEDULE.MORNING_OUT);
     setAfternoonIn(initialTimes?.AFTERNOON?.clockIn ?? GOLDEN_SCHEDULE.AFTERNOON_IN);
@@ -246,7 +276,44 @@ export function SchedulePageClient({
     ],
     [shiftTypes, offDayShiftTypes, sessionPattern]
   );
-  const legend = getRotationLegend(oddWeekTrackForA, rotationMode);
+  const oneClickRules = useMemo(
+    () => listOneClickGoldenRules(sessionPattern),
+    [sessionPattern]
+  );
+  const manualRules = useMemo(
+    () => listManualGoldenRules(sessionPattern).filter((rule) => rule.usage === "rare"),
+    [sessionPattern]
+  );
+  const poolPeople = useMemo(
+    () =>
+      employees.map((emp) => ({
+        id: emp.id,
+        role: emp.role,
+        job_title: emp.job_title,
+        is_related_to_owner: emp.is_related_to_owner,
+      })),
+    [employees]
+  );
+  const selectedPools = useMemo(
+    () => splitPoolsFromPeople(poolPeople, staffPoolIds),
+    [poolPeople, staffPoolIds]
+  );
+  const selectedRule = oneClickRules.find((rule) => rule.id === ruleId) ?? null;
+  const fairLegend = selectedRule
+    ? getGoldenGeneratorLegend(
+        selectedRule,
+        selectedPools.nurseIds.length,
+        selectedPools.adminIds.length
+      )
+    : {
+        title: `依人力自動選常態規則 · 護理 ${selectedPools.nurseIds.length}、行政 ${selectedPools.adminIds.length}`,
+        items: [
+          "一鍵產生只套用護理／行政常態規則，不含家屬備用規則",
+          "每人每週最多 8 診；達上限改行政跟診並提醒",
+          "加開診給當週目前診數最少的人",
+          "跨週接上週輪替；沒有上週狀態時依週次換起始順序",
+        ],
+      };
   const days = useMemo(
     () => Array.from({ length: daysInMonth }, (_, i) => i + 1),
     [daysInMonth]
@@ -267,16 +334,35 @@ export function SchedulePageClient({
     router.push(`/schedules?year=${newYear}&month=${newMonth}`);
   }
 
-  async function handleAssign(workDate: string, shift: ShiftType, employeeIds: string[]) {
+  function staffLabel(ids: string[]): string {
+    const names = cellStaffIds(ids)
+      .map((id) => employees.find((emp) => emp.id === id)?.name ?? "同仁")
+      .filter(Boolean);
+    return names.length > 0 ? names.join("、") : "未指定";
+  }
+
+  function publishedStaffIds(workDate: string, shiftId: string): string[] {
+    const raw = publishedSnapshot?.[snapshotCellKey(workDate, shiftId)] ?? "";
+    return raw ? raw.split(",").filter(Boolean) : [];
+  }
+
+  async function persistAssign(
+    workDate: string,
+    shift: ShiftType,
+    employeeIds: string[],
+    options?: { recordHistory?: boolean }
+  ) {
     const cellKey = `${workDate}:${shift.id}`;
     const prevValue = cellStaffIds(assignmentMap[workDate]?.[shift.id]);
     const value = cellStaffIds(employeeIds);
+    const recordHistory = options?.recordHistory !== false;
 
     setAssignmentMap((prev) => ({
       ...prev,
       [workDate]: { ...prev[workDate], [shift.id]: value },
     }));
     setMessage(null);
+    setSaveOk(null);
     setPendingCell(cellKey);
 
     try {
@@ -293,16 +379,62 @@ export function SchedulePageClient({
           ...prev,
           [workDate]: { ...prev[workDate], [shift.id]: prevValue },
         }));
-        setMessage(result.error ?? "儲存失敗");
+        setSaveOk(false);
+        setMessage(result.error ?? "儲存失敗，班表沒有改掉");
+        return false;
       }
+      if (recordHistory) {
+        setHistory((prev) => [...prev, { workDate, shift, prev: prevValue }].slice(-30));
+      }
+      const notified = "notified" in result ? (result.notified ?? 0) : 0;
+      setSaveOk(true);
+      setMessage(
+        `已儲存 ${workDate} ${shift.name}：${staffLabel(value)}` +
+          (result && "amended" in result && result.amended
+            ? `（發布後更正，格子已標紅${notified > 0 ? `，已 LINE 通知 ${notified} 人` : ""}）`
+            : "")
+      );
+      return true;
     } catch (err) {
       setAssignmentMap((prev) => ({
         ...prev,
         [workDate]: { ...prev[workDate], [shift.id]: prevValue },
       }));
-      setMessage(err instanceof Error ? err.message : "儲存失敗");
+      setSaveOk(false);
+      setMessage(err instanceof Error ? err.message : "儲存失敗，班表沒有改掉");
+      return false;
     } finally {
       setPendingCell((cur) => (cur === cellKey ? null : cur));
+    }
+  }
+
+  async function handleAssign(workDate: string, shift: ShiftType, employeeIds: string[]) {
+    await persistAssign(workDate, shift, employeeIds);
+  }
+
+  async function handleUndoLast() {
+    const last = history[history.length - 1];
+    if (!last) return;
+    setHistory((prev) => prev.slice(0, -1));
+    const ok = await persistAssign(last.workDate, last.shift, last.prev, {
+      recordHistory: false,
+    });
+    if (ok) {
+      setSaveOk(true);
+      setMessage(
+        `已回復上一步：${last.workDate} ${last.shift.name} 回到 ${staffLabel(last.prev)}`
+      );
+    }
+  }
+
+  async function handleRestorePublished(workDate: string, shift: ShiftType) {
+    const published = publishedStaffIds(workDate, shift.id);
+    const ok = await persistAssign(workDate, shift, published);
+    if (ok) {
+      setSaveOk(true);
+      setMessage(
+        `已還原 ${workDate} ${shift.name} 為發布時班表：${staffLabel(published)}`
+      );
     }
   }
 
@@ -404,38 +536,27 @@ export function SchedulePageClient({
   }
 
   function handleGenerateGolden() {
-    if (!employeeAId || !employeeBId) {
-      setMessage("請先選擇員工 A 與員工 B（皆為護理師）");
+    const pool = uniqueStaffIds([
+      ...selectedPools.nurseIds,
+      ...selectedPools.adminIds,
+    ]);
+    if (pool.length === 0) {
+      setMessage("請勾選本月要輪班的護理師或行政（家屬不列入一鍵產生）");
       return;
     }
-    if (employeeAId === employeeBId) {
-      setMessage("員工 A 與 B 必須是不同人");
-      return;
-    }
-    if (rotationMode === "triple") {
-      if (!employeeCId) {
-        setMessage("三人制請再選擇員工 C");
-        return;
-      }
-      if (employeeCId === employeeAId || employeeCId === employeeBId) {
-        setMessage("員工 A／B／C 必須為不同人");
-        return;
-      }
-      if (employees.length < 3) {
-        setMessage("三人制至少需要 3 位在職護理師");
-        return;
-      }
-    }
-    const modeLabel =
-      SCHEDULE_MODE_OPTIONS.find((o) => o.id === rotationMode)?.label ?? rotationMode;
     const patternLabel =
       SESSION_PATTERN_OPTIONS.find((o) => o.id === sessionPattern)?.shortLabel ?? "兩段班";
+    const ruleLabel = selectedRule?.name ?? "依人力自動選常態規則";
     const publishedHint = isPublished
       ? "\n此月已發布，產生後會整月覆蓋，打卡改依新班表。"
       : "";
+    const familyHint =
+      selectedPools.familyIds.length > 0
+        ? `\n已勾選的家屬不會自動排入，請產生後再手動排。`
+        : "";
     if (
       !confirm(
-        `確定為 ${year} 年 ${month} 月一鍵產生班表？\n開診：${patternLabel}\n輪替：${modeLabel}\n現有排班將被覆蓋。${publishedHint}`
+        `確定為 ${year} 年 ${month} 月一鍵產生班表？\n開診：${patternLabel}\n規則：${ruleLabel}\n護理 ${selectedPools.nurseIds.length} 人、行政 ${selectedPools.adminIds.length} 人\n每人每週最多 8 診；加開診給當週診數最少的人。\n現有排班將被覆蓋。${familyHint}${publishedHint}`
       )
     ) {
       return;
@@ -447,12 +568,16 @@ export function SchedulePageClient({
           schedule.id,
           {
             mode: rotationMode,
-            employeeAId,
-            employeeBId,
-            employeeCId: rotationMode === "triple" ? employeeCId : undefined,
-            oddWeekTrackForA,
+            employeeAId: pool[0],
+            employeeBId: pool[1] ?? pool[0],
+            employeeCId: pool[2],
+            staffPoolIds: pool,
+            nursePoolIds: selectedPools.nurseIds,
+            adminPoolIds: selectedPools.adminIds,
+            oddWeekTrackForA: 1,
             sessionPattern,
             staffingPerSession,
+            ruleId: selectedRule?.id,
             sessionTimes: {
               MORNING: { clockIn: morningIn, clockOut: morningOut },
               AFTERNOON: { clockIn: afternoonIn, clockOut: afternoonOut },
@@ -468,8 +593,12 @@ export function SchedulePageClient({
         if (result.assignmentMap) {
           setAssignmentMap(result.assignmentMap);
         }
+        const reminderText =
+          "reminders" in result && result.reminders.length > 0
+            ? `\n提醒：${result.reminders.slice(0, 3).join("；")}`
+            : "";
         setMessage(
-          `已產生 ${result.count} 筆排班（${patternLabel} · ${modeLabel}）`
+          `已產生 ${result.count} 筆排班（${result.ruleId ?? ruleLabel} · 護理 ${selectedPools.nurseIds.length}、行政 ${selectedPools.adminIds.length}）${reminderText}`
         );
         router.refresh();
       } catch (err) {
@@ -582,6 +711,7 @@ export function SchedulePageClient({
         return;
       }
       setSessionPattern(pattern);
+      setRuleId("");
       setMessage(`本月已改為${label}`);
       router.refresh();
     });
@@ -623,7 +753,7 @@ export function SchedulePageClient({
     <>
       <DashboardHeader
         title="排班管理"
-        description={`${clinic.name} — 目前暫定兩段班，可改三段班；每診可排 1～6 人`}
+        description={`${clinic.name} — 快速排班依每診人數從輪班池補滿；格子可手動排 1～6 人`}
         action={
           <div className="flex flex-wrap items-center gap-2">
             <button
@@ -631,10 +761,14 @@ export function SchedulePageClient({
               onClick={() => changeMonth(-1)}
               disabled={isNavigating}
               className="rounded-lg border border-slate-800 bg-white px-3 py-2 text-sm font-semibold text-black hover:bg-slate-100 disabled:opacity-60"
+              style={{ color: "#000000" }}
             >
               ← 上個月
             </button>
-            <span className="min-w-28 text-center text-sm font-semibold text-black">
+            <span
+              className="min-w-28 text-center text-sm font-semibold text-black"
+              style={{ color: "#000000" }}
+            >
               {year} 年 {month} 月
               {isNavigating ? "…" : ""}
             </span>
@@ -643,6 +777,7 @@ export function SchedulePageClient({
               onClick={() => changeMonth(1)}
               disabled={isNavigating}
               className="rounded-lg border border-slate-800 bg-white px-3 py-2 text-sm font-semibold text-black hover:bg-slate-100 disabled:opacity-60"
+              style={{ color: "#000000" }}
             >
               下個月 →
             </button>
@@ -656,6 +791,14 @@ export function SchedulePageClient({
                 確認發布班表
               </button>
             )}
+            <button
+              type="button"
+              onClick={() => void handleUndoLast()}
+              disabled={busy || history.length === 0 || Boolean(pendingCell)}
+              className="rounded-lg border border-slate-800 bg-white px-4 py-2 text-sm font-semibold text-black hover:bg-slate-100 disabled:opacity-40"
+            >
+              回復上一步
+            </button>
             {isPublished && amendmentCount > 0 && (
               <button
                 type="button"
@@ -671,6 +814,34 @@ export function SchedulePageClient({
       />
 
       <div className="space-y-4 p-6">
+        <div className="sticky top-0 z-20 space-y-3">
+          <div className="rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm text-black shadow-sm">
+            <p className="font-bold">更改班表流程</p>
+            <ol className="mt-2 list-decimal space-y-1 pl-5 text-xs leading-relaxed">
+              <li>在下方格子改人，系統會立刻寫入。成功時上方會顯示「已儲存」。</li>
+              <li>改錯按右上角「回復上一步」。已發布的紅字格子也可按「還原」，回到發布當時的人。</li>
+              <li>尚未發布：改完後按「確認發布班表」，才會 LINE 通知全員。</li>
+              <li>已經發布：一改就生效（打卡／計薪跟著變），格子變紅；確認無誤再按「確認變更」。</li>
+            </ol>
+          </div>
+          <div
+            className={`rounded-xl border px-4 py-3 text-sm font-semibold shadow-sm ${
+              pendingCell
+                ? "border-amber-300 bg-amber-50 text-amber-950"
+                : saveOk === false
+                  ? "border-red-300 bg-red-50 text-red-900"
+                  : saveOk === true || message
+                    ? "border-emerald-300 bg-emerald-50 text-emerald-900"
+                    : "border-slate-200 bg-slate-50 text-slate-700"
+            }`}
+          >
+            {pendingCell
+              ? "正在儲存這格，請稍候…"
+              : message
+                ? message
+                : "還沒改班表。改任一格後，這裡會顯示有沒有存成功。"}
+          </div>
+        </div>
         {isPublished && (
           <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-900">
             已發布班表仍可修改；<span className="font-semibold">紅字格子</span>
@@ -679,11 +850,9 @@ export function SchedulePageClient({
           </div>
         )}
         <div className="rounded-xl border-2 border-emerald-400 bg-emerald-50 p-4">
-          <p className="text-base font-bold text-black">一診可排多人（1～6 位護理師）</p>
+          <p className="text-base font-bold text-black">一診可排多人（格子固定顯示第 1、第 2 人）</p>
           <p className="mt-1 text-sm leading-relaxed text-black">
-            目前暫定兩段班（早＋晚）。之後若改三段班，這裡一鍵切換；午診時間可改。
-            每個診別格子可加第 2～6 人：先把「一診可排幾人」調高，再按格子裡的「＋ 加入護理師」。
-            打卡會跟著班表：兩段兩組上下班、三段三組。
+            每個診別都有「第 1 人／第 2 人」下拉，之後可加到第 6 人。上面「一診可排幾人」是給快速排班用的目標人數：現況 1 人就選 1，之後兩人互相支援就選 2。
           </p>
           <div className="mt-3 flex flex-wrap items-end gap-3">
             <div>
@@ -705,7 +874,7 @@ export function SchedulePageClient({
             </div>
             <div>
               <label className="mb-1 block text-sm font-semibold text-black">
-                一診可排幾人（1～6）
+                快速排班：一診要幾人
               </label>
               <select
                 value={staffingPerSession}
@@ -768,170 +937,154 @@ export function SchedulePageClient({
           </div>
         </div>
 
-        <div className="rounded-xl border border-amber-200 bg-amber-50/80 p-4 text-sm text-amber-900">
-          <p className="font-semibold">快速排班模式</p>
-          <p className="mt-1 text-amber-800">
-            {rotationMode === "triple"
-              ? "模式 B 三人制：依 ISO 週 % 3 輪替完美週末／週三充電／全勤支援；週三開早午診；平日早午晚各 2 人。"
-              : "模式 A 雙人制：依 ISO 週 % 2 對調週三班／週末班；週三僅早診；週五早午或午晚；六日大休或早診。"}
-            {" "}薪資仍依四週變形：休假不足自動核算休息日加班（855／半天診），加班費免稅不入 50 格式。
+        <div className="rounded-xl border border-amber-200 bg-amber-50/80 p-4 text-sm text-black">
+          <p className="font-semibold text-black">一鍵產生怎麼排</p>
+          <p className="mt-1 leading-relaxed text-black">
+            勾選護理師與行政，選常態黃金規則（不含家屬備用）。週末／晚診輪流；每人每週最多 8 診，達上限改行政並提醒。加開診給當週診數最少的人。產生後仍可在格子改第 1～6 人。
           </p>
+          <p className="mt-2 text-sm font-semibold text-black">{fairLegend.title}</p>
+          <ul className="mt-1 list-inside list-disc space-y-1 text-sm text-black">
+            {fairLegend.items.map((item) => (
+              <li key={item}>{item}</li>
+            ))}
+          </ul>
         </div>
 
-        <div
-          className={`grid gap-4 ${
-            rotationMode === "triple" ? "lg:grid-cols-3" : "lg:grid-cols-2"
-          }`}
-        >
-          <div className="rounded-xl border border-slate-200 bg-white p-4">
-            <h3 className="text-sm font-semibold text-slate-800">{legend.track1.title}</h3>
-            <ul className="mt-2 list-inside list-disc space-y-1 text-sm text-slate-700">
-              {legend.track1.items.map((item) => (
-                <li key={item}>{item}</li>
-              ))}
-            </ul>
-          </div>
-          <div className="rounded-xl border border-slate-200 bg-white p-4">
-            <h3 className="text-sm font-semibold text-slate-800">{legend.track2.title}</h3>
-            <ul className="mt-2 list-inside list-disc space-y-1 text-sm text-slate-700">
-              {legend.track2.items.map((item) => (
-                <li key={item}>{item}</li>
-              ))}
-            </ul>
-            {rotationMode === "dual" && (
-              <p className="mt-3 text-xs text-slate-700">{legend.swapNote}</p>
-            )}
-          </div>
-          {rotationMode === "triple" && "track3" in legend && legend.track3 && (
-            <div className="rounded-xl border border-slate-200 bg-white p-4">
-              <h3 className="text-sm font-semibold text-slate-800">{legend.track3.title}</h3>
-              <ul className="mt-2 list-inside list-disc space-y-1 text-sm text-slate-700">
-                {legend.track3.items.map((item) => (
-                  <li key={item}>{item}</li>
-                ))}
-              </ul>
-              <p className="mt-3 text-xs text-slate-700">{legend.swapNote}</p>
-            </div>
-          )}
-        </div>
-
-        <div className="flex flex-wrap items-end gap-3 rounded-xl border border-slate-200 bg-white p-4">
-          <div>
-            <label className="mb-1 block text-xs font-medium text-slate-700">
-              快速排班模式
-            </label>
-            <select
-              value={rotationMode}
-              onChange={(e) =>
-                setRotationMode(normalizeScheduleMode(e.target.value as ScheduleRotationMode))
-              }
-              disabled={isPending}
-              className="min-w-56 rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-800"
-            >
-              {SCHEDULE_MODE_OPTIONS.map((opt) => (
-                <option key={opt.id} value={opt.id}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="mb-1 block text-xs font-medium text-slate-700">
-              員工 A（護理師）
-            </label>
-            <select
-              value={employeeAId}
-              onChange={(e) => setEmployeeAId(e.target.value)}
-              disabled={isPending}
-              className="min-w-40 rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-800"
-            >
-              <option value="">— 請選擇 —</option>
-              {employees.map((emp) => (
-                <option key={emp.id} value={emp.id}>
-                  {employeeLabel(emp)}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="mb-1 block text-xs font-medium text-slate-700">
-              員工 B（護理師）
-            </label>
-            <select
-              value={employeeBId}
-              onChange={(e) => setEmployeeBId(e.target.value)}
-              disabled={isPending}
-              className="min-w-40 rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-800"
-            >
-              <option value="">— 請選擇 —</option>
-              {employees.map((emp) => (
-                <option key={emp.id} value={emp.id}>
-                  {employeeLabel(emp)}
-                </option>
-              ))}
-            </select>
-          </div>
-          {rotationMode === "triple" && (
+        <div className="space-y-3 rounded-xl border border-slate-200 bg-white p-4">
+          <div className="flex flex-wrap items-end gap-3">
             <div>
-              <label className="mb-1 block text-xs font-medium text-slate-700">
-                員工 C（護理師）
-              </label>
+              <label className="mb-1 block text-xs font-medium text-black">常態規則（一鍵產生）</label>
               <select
-                value={employeeCId}
-                onChange={(e) => setEmployeeCId(e.target.value)}
+                value={ruleId}
+                onChange={(e) => setRuleId(e.target.value)}
                 disabled={isPending}
-                className="min-w-40 rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-800"
+                className="min-w-64 rounded-lg border border-slate-800 bg-white px-3 py-2 text-sm text-black"
               >
-                <option value="">— 請選擇 —</option>
-                {employees.map((emp) => (
-                  <option key={emp.id} value={emp.id}>
-                    {employeeLabel(emp)}
+                <option value="">依人力自動選（不含家屬規則）</option>
+                {oneClickRules.map((rule) => (
+                  <option key={rule.id} value={rule.id}>
+                    {rule.id} · {rule.name}
                   </option>
                 ))}
               </select>
+              <p className="mt-1 text-xs text-black">
+                {selectedRule?.summary ?? "家屬備用規則不會出現在這裡，只能手動排進格子。"}
+              </p>
+              {manualRules.length > 0 && (
+                <p className="mt-1 text-xs text-slate-600">
+                  手動備用：{manualRules.map((rule) => rule.id).join("、")}
+                </p>
+              )}
             </div>
-          )}
-          {rotationMode === "dual" && (
             <div>
-              <label className="mb-1 block text-xs font-medium text-slate-700">
-                奇數週員工 A 走
-              </label>
+              <label className="mb-1 block text-xs font-medium text-black">開診節奏</label>
               <select
-                value={oddWeekTrackForA}
-                onChange={(e) => setOddWeekTrackForA(Number(e.target.value) as 1 | 2)}
-                disabled={isPending}
-                className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-800"
-              >
-                <option value={1}>軌道一（週三班：週三早診、週五早午、六日大休）</option>
-                <option value={2}>軌道二（週末班：週三例假、週五午晚、六日早診）</option>
-              </select>
-            </div>
-          )}
-          <>
-              <button
-                type="button"
-                onClick={handleApplyGoldenTemplate}
-                disabled={isPending}
-                className="rounded-lg border border-blue-600 px-4 py-2 text-sm font-medium text-blue-600 hover:bg-blue-50 disabled:opacity-60"
-              >
-                套用黃金班別
-              </button>
-              <button
-                type="button"
-                onClick={handleGenerateGolden}
-                disabled={
-                  isPending ||
-                  employees.length < (rotationMode === "triple" ? 3 : 2)
+                value={rotationMode}
+                onChange={(e) =>
+                  setRotationMode(normalizeScheduleMode(e.target.value as ScheduleRotationMode))
                 }
-                className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-60"
+                disabled={isPending}
+                className="min-w-56 rounded-lg border border-slate-800 bg-white px-3 py-2 text-sm text-black"
               >
-                {isPending ? "產生中…" : "一鍵產生黃金班表"}
+                {SCHEDULE_MODE_OPTIONS.map((opt) => (
+                  <option key={opt.id} value={opt.id}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+              <p className="mt-1 text-xs text-black">
+                {SCHEDULE_MODE_OPTIONS.find((opt) => opt.id === rotationMode)?.hint}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={handleApplyGoldenTemplate}
+              disabled={isPending}
+              className="rounded-lg border border-blue-600 px-4 py-2 text-sm font-medium text-blue-600 hover:bg-blue-50 disabled:opacity-60"
+            >
+              套用黃金班別
+            </button>
+            <button
+              type="button"
+              onClick={handleGenerateGolden}
+              disabled={isPending || staffPoolIds.length === 0 || employees.length === 0}
+              className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-60"
+            >
+              {isPending ? "產生中…" : "一鍵產生班表"}
+            </button>
+            <StatusBadge
+              label={SCHEDULE_STATUS_LABELS[schedule.status]}
+              tone={schedule.status === "published" ? "green" : "amber"}
+            />
+          </div>
+          <div>
+            <p className="mb-2 text-sm font-semibold text-black">本月輪班人員（護理師／行政）</p>
+            <div className="flex flex-wrap gap-2">
+              {employees.map((emp) => {
+                const checked = staffPoolIds.includes(emp.id);
+                const kind = classifyAttendantKind(emp);
+                const kindLabel = kind ? ATTENDANT_KIND_LABELS[kind] : "未分類（當護理師）";
+                const isFamily = kind === "family";
+                return (
+                  <label
+                    key={emp.id}
+                    className={`inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-semibold ${
+                      isFamily
+                        ? "border-slate-200 bg-slate-50 text-slate-500"
+                        : checked
+                          ? "border-emerald-600 bg-emerald-50 text-black"
+                          : "border-slate-300 bg-white text-black"
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      disabled={isPending || isFamily}
+                      onChange={() => {
+                        setStaffPoolIds((prev) =>
+                          prev.includes(emp.id)
+                            ? prev.filter((id) => id !== emp.id)
+                            : [...prev, emp.id]
+                        );
+                      }}
+                    />
+                    {employeeLabel(emp)}
+                    <span className="text-xs font-medium">{kindLabel}</span>
+                  </label>
+                );
+              })}
+            </div>
+            <div className="mt-2 flex flex-wrap gap-2">
+              <button
+                type="button"
+                disabled={isPending}
+                onClick={() =>
+                  setStaffPoolIds(
+                    employees
+                      .filter((emp) => classifyAttendantKind(emp) !== "family")
+                      .map((emp) => emp.id)
+                  )
+                }
+                className="rounded border border-slate-800 px-2 py-1 text-xs font-semibold text-black"
+              >
+                全選護理／行政
               </button>
-            </>
-          <StatusBadge
-            label={SCHEDULE_STATUS_LABELS[schedule.status]}
-            tone={schedule.status === "published" ? "green" : "amber"}
-          />
+              <button
+                type="button"
+                disabled={isPending}
+                onClick={() => setStaffPoolIds([])}
+                className="rounded border border-slate-800 px-2 py-1 text-xs font-semibold text-black"
+              >
+                清空
+              </button>
+              <span className="self-center text-xs font-semibold text-black">
+                護理 {selectedPools.nurseIds.length} · 行政 {selectedPools.adminIds.length}
+                {selectedPools.familyIds.length > 0
+                  ? ` · 家屬 ${selectedPools.familyIds.length}（不自動排）`
+                  : ""}
+              </span>
+            </div>
+          </div>
         </div>
 
         <ComplianceAlertList issues={complianceIssues} />
@@ -1037,22 +1190,14 @@ export function SchedulePageClient({
           )}
         </section>
 
-        {message && (
-          <div className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">
-            {message}
-          </div>
-        )}
-
-        {employees.length < (rotationMode === "triple" ? 3 : 2) ? (
-          <div className="rounded-xl border border-dashed border-slate-300 bg-white px-6 py-12 text-center text-sm text-slate-700">
-            {rotationMode === "triple"
-              ? "請先到「員工管理」新增至少 3 位護理師，才能產生三人制班表"
-              : "請先到「員工管理」新增 2 位護理師，才能產生雙人制班表"}
+        {employees.length === 0 ? (
+          <div className="rounded-xl border border-dashed border-slate-300 bg-white px-6 py-12 text-center text-sm text-black">
+            請先到「員工管理」新增護理師，才能排班與一鍵產生
           </div>
         ) : (
           <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
             <p className="border-b border-slate-200 bg-amber-50 px-3 py-2 text-sm font-semibold text-black">
-              一診可多人：每個診別格子點「＋ 加入護理師」即可加第 2～6 人。手機請左右滑動表格。
+              每個診別固定有第 1 人、第 2 人下拉，可加到第 6 人。手機請左右滑動表格。
             </p>
             <div className="overflow-x-auto">
               <table className="min-w-full text-sm">
@@ -1096,8 +1241,8 @@ export function SchedulePageClient({
                         holidayName={holidayMap.get(workDate)}
                         pendingCell={pendingCell}
                         rowBusy={isPending}
-                        staffingLimit={staffingPerSession}
                         onAssign={handleAssign}
+                        onRestorePublished={handleRestorePublished}
                         onClosure={handleRowClosure}
                         onHalfDay={handleRowHalfDay}
                       />
@@ -1126,8 +1271,8 @@ const ScheduleDayRow = memo(function ScheduleDayRow({
   holidayName,
   pendingCell,
   rowBusy,
-  staffingLimit,
   onAssign,
+  onRestorePublished,
   onClosure,
   onHalfDay,
 }: {
@@ -1143,8 +1288,8 @@ const ScheduleDayRow = memo(function ScheduleDayRow({
   holidayName?: string;
   pendingCell: string | null;
   rowBusy: boolean;
-  staffingLimit: number;
   onAssign: (workDate: string, shift: ShiftType, employeeIds: string[]) => void;
+  onRestorePublished: (workDate: string, shift: ShiftType) => void;
   onClosure: (workDate: string) => void;
   onHalfDay: (workDate: string) => void;
 }) {
@@ -1217,8 +1362,8 @@ const ScheduleDayRow = memo(function ScheduleDayRow({
           shift.code === "MORNING" ||
           shift.code === "AFTERNOON" ||
           shift.code === "EVENING"
-            ? staffingLimit
-            : employeeOptions.length;
+            ? MAX_NURSES_PER_SESSION
+            : 1;
         return (
           <td key={shift.id} className="px-2 py-2">
             <div className="relative">
@@ -1231,9 +1376,19 @@ const ScheduleDayRow = memo(function ScheduleDayRow({
                 onChange={(ids) => onAssign(workDate, shift, ids)}
               />
               {amended && (
-                <span className="absolute -right-1 -top-1 rounded bg-red-600 px-1 text-[9px] font-bold text-white">
-                  改
-                </span>
+                <div className="mt-1 flex items-center justify-between gap-1">
+                  <span className="rounded bg-red-600 px-1 text-[9px] font-bold text-white">
+                    已改
+                  </span>
+                  <button
+                    type="button"
+                    disabled={cellPending}
+                    onClick={() => onRestorePublished(workDate, shift)}
+                    className="rounded border border-red-400 bg-white px-1.5 py-0.5 text-[10px] font-semibold text-red-700 hover:bg-red-50 disabled:opacity-50"
+                  >
+                    還原
+                  </button>
+                </div>
               )}
             </div>
           </td>
@@ -1258,70 +1413,68 @@ function SessionStaffCell({
   amended: boolean;
   onChange: (ids: string[]) => void;
 }) {
-  const selectedSet = new Set(selectedIds);
-  const addable = options.filter((emp) => !selectedSet.has(emp.id));
-  const canAdd = selectedIds.length < maxStaff && addable.length > 0;
+  const limit = Math.min(MAX_NURSES_PER_SESSION, Math.max(1, maxStaff));
+  const visibleSlots = Math.min(
+    limit,
+    Math.max(limit === 1 ? 1 : 2, selectedIds.length + (selectedIds.length < limit ? 1 : 0))
+  );
+  const slots = Array.from({ length: visibleSlots }, (_, index) => selectedIds[index] ?? "");
+
+  function setSlot(index: number, employeeId: string) {
+    const next = selectedIds.slice();
+    if (!employeeId) {
+      if (index < next.length) next.splice(index, 1);
+      onChange(next);
+      return;
+    }
+    const existingAt = next.indexOf(employeeId);
+    if (existingAt === index) return;
+    if (existingAt >= 0) {
+      if (index < next.length) {
+        next[existingAt] = next[index];
+        next[index] = employeeId;
+      } else {
+        next.splice(existingAt, 1);
+        next.push(employeeId);
+      }
+    } else if (index < next.length) {
+      next[index] = employeeId;
+    } else {
+      next.push(employeeId);
+    }
+    onChange(next.filter(Boolean));
+  }
 
   return (
     <div className="space-y-1">
-      <div className="flex flex-wrap gap-1">
-        {selectedIds.length === 0 && (
-          <span className="text-xs font-semibold text-black">尚未排人 · 可加到 {maxStaff} 人</span>
-        )}
-        {selectedIds.map((id) => {
-          const emp = options.find((item) => item.id === id);
-          return (
-            <span
-              key={id}
-              className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium ${
-                amended
-                  ? "bg-red-100 text-red-800"
-                  : "bg-slate-100 text-slate-800"
-              }`}
-            >
-              {emp?.label ?? "未知"}
-              <button
-                type="button"
-                disabled={disabled}
-                onClick={() => onChange(selectedIds.filter((item) => item !== id))}
-                className="text-slate-500 hover:text-red-600 disabled:opacity-40"
-                aria-label={`移除 ${emp?.label ?? ""}`}
-              >
-                ×
-              </button>
+      {slots.map((id, index) => {
+        const used = new Set(slots.filter((item, itemIndex) => item && itemIndex !== index));
+        return (
+          <label key={`slot-${index}`} className="block">
+            <span className="mb-0.5 block text-[11px] font-semibold text-black">
+              第 {index + 1} 人
             </span>
-          );
-        })}
-      </div>
-      {canAdd && (
-        <select
-          disabled={disabled}
-          value=""
-          onChange={(e) => {
-            if (!e.target.value) return;
-            onChange([...selectedIds, e.target.value]);
-          }}
-          className={`w-full rounded-lg border bg-white px-2 py-2 text-xs font-semibold outline-none focus:border-blue-400 disabled:bg-slate-100 ${
-            amended ? "border-red-400 text-red-700" : "border-slate-800 text-black"
-          }`}
-        >
-          <option value="">
-            {selectedIds.length === 0
-              ? "＋ 加入護理師（一診可多人）"
-              : `＋ 再加一位（${selectedIds.length}／${maxStaff}）`}
-          </option>
-          {addable.map((emp) => (
-            <option key={emp.id} value={emp.id}>
-              {emp.label}
-            </option>
-          ))}
-        </select>
-      )}
-      {!canAdd && selectedIds.length >= maxStaff && (
-        <p className="text-[11px] font-semibold text-black">
-          已滿 {maxStaff} 人。要再加人請先把上方「一診可排幾人」調高（最多 6）。
-        </p>
-      )}
+            <select
+              disabled={disabled}
+              value={id}
+              onChange={(e) => setSlot(index, e.target.value)}
+              className={`w-full rounded-lg border bg-white px-2 py-1.5 text-xs font-semibold outline-none focus:border-blue-400 disabled:bg-slate-100 ${
+                amended ? "border-red-400 text-red-700" : "border-slate-800 text-black"
+              }`}
+              style={{ color: "#000000" }}
+            >
+              <option value="">未指定</option>
+              {options
+                .filter((emp) => !used.has(emp.id) || emp.id === id)
+                .map((emp) => (
+                  <option key={emp.id} value={emp.id}>
+                    {emp.label}
+                  </option>
+                ))}
+            </select>
+          </label>
+        );
+      })}
     </div>
   );
 }
